@@ -8,11 +8,15 @@ export interface Character {
   appearance: string;
 }
 
+export type DialogueType = "speech" | "shout" | "thought";
+
 export interface PanelDescription {
   panel: number;
   scene: string;
   characters: string[];
   dialogue?: string;
+  dialogueType?: DialogueType;
+  sfx?: string; // onomatopoeia word art, e.g. "POW", "CRASH" — action panels only
   cameraAngle?: string;
 }
 
@@ -142,6 +146,7 @@ export function pickLayout(
   panelCount: number,
   prevLayout: PanelLayout[] | null,
   firstCameraAngle?: string,
+  preferHero = false,
 ): PanelLayout[] {
   const opts = LAYOUTS[panelCount];
   if (!opts || opts.length === 0) {
@@ -172,6 +177,12 @@ export function pickLayout(
       const isWide = wideAngles.some((a) => firstCameraAngle.toLowerCase().includes(a));
       if (isWide && firstPanelW > 0.3) score += 3;
       if (!isWide && firstPanelW > 0.4) score -= 1;
+    }
+
+    // Climax page: strongly favor a dominant hero/splash panel for payoff.
+    if (preferHero) {
+      const biggest = Math.max(...layout.map((l) => l.w * l.h));
+      if (biggest > 0.45) score += 5;
     }
 
     // Prefer variety: layouts with different shapes

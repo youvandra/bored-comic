@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
 import { config } from "./config.js";
-import type { Character, ComicDelivery, ComicEvidence, GenerateComicInput, PageResult, PanelLayout, PanelDescription, Storyboard } from "./types.js";
+import type { Character, ComicDelivery, ComicEvidence, DialogueType, GenerateComicInput, PageResult, PanelLayout, PanelDescription, Storyboard } from "./types.js";
 import { pickLayout } from "./types.js";
 import { generateStoryboard } from "./writer.js";
 import { generatePanel, type ImageGenResult } from "./illustrator.js";
@@ -51,7 +51,8 @@ export async function runPipeline(
   const pageTasks = storyboard.pages.map(async (page, pageIdx) => {
     const firstCam = page.panelDescriptions[0]?.cameraAngle;
     const prevLayoutObj = pageLayouts[pageIdx - 1] ?? null;
-    const layouts = pickLayout(page.panelDescriptions.length, prevLayoutObj, firstCam);
+    const isClimax = storyboard.pages.length > 1 && pageIdx === storyboard.pages.length - 1;
+    const layouts = pickLayout(page.panelDescriptions.length, prevLayoutObj, firstCam, isClimax);
     pageLayouts.push(layouts);
     const panelImages: ImageGenResult[] = [];
 
@@ -64,7 +65,7 @@ export async function runPipeline(
       panelImages.push(img);
     }
 
-    await assemblePage({ panels: panelImages, layouts, pageNumber: page.page, workDir, dialogue: page.panelDescriptions.map((pd) => pd.dialogue), storyBeat: page.storyBeat, colorMode, pageW, pageH });
+    await assemblePage({ panels: panelImages, layouts, pageNumber: page.page, workDir, descriptions: page.panelDescriptions, storyBeat: page.storyBeat, colorMode, pageW, pageH });
 
     // Report the panels actually rendered, not the LLM's declared count.
     const renderedPanels = page.panelDescriptions.length;
@@ -175,13 +176,13 @@ async function assemblePage(params: {
   layouts: PanelLayout[];
   pageNumber: number;
   workDir: string;
-  dialogue: (string | undefined)[];
+  descriptions: PanelDescription[];
   storyBeat: string;
   colorMode: string;
   pageW: number;
   pageH: number;
 }): Promise<string> {
-  const { panels, layouts, pageNumber, workDir, dialogue, storyBeat, colorMode, pageW, pageH } = params;
+  const { panels, layouts, pageNumber, workDir, descriptions, storyBeat, colorMode, pageW, pageH } = params;
   if (panels.length === 0) return "";
 
   const composite: { input: string | Buffer; top: number; left: number }[] = [];
@@ -193,15 +194,18 @@ async function assemblePage(params: {
     const pw = Math.round((pageW - GUTTER) * layout.w - GUTTER);
     const ph = Math.round((pageH - GUTTER) * layout.h - GUTTER);
 
-    const pngBuf = await sharp(panels[i].path)
+    let panelBuf: Buffer = await sharp(panels[i].path)
       // "attention" keeps the salient subject (faces/action) in frame instead of
       // blindly cropping to centre.
       .resize(pw, ph, { fit: "cover", position: sharp.strategy.attention })
       .png()
       .toBuffer();
 
-    const diag = dialogue[i];
-    const buf = diag ? await addSpeechBubble(pngBuf, diag) : pngBuf;
+    const pd = descriptions[i];
+    // SFX first (under the balloon), then the balloon on top.
+    if (pd?.sfx) panelBuf = await addSfx(panelBuf, pd.sfx);
+    if (pd?.dialogue) panelBuf = await addSpeechBubble(panelBuf, pd.dialogue, balloonType(pd));
+    const buf = panelBuf;
 
     const x = Math.round(GUTTER + (pageW - GUTTER) * layout.x);
     const y = Math.round(GUTTER + (pageH - GUTTER) * layout.y);
@@ -298,9 +302,48 @@ function renderNarration(text: string, pageW: number, pageH: number): Buffer {
   return Buffer.from(svg);
 }
 
-// Opaque comic speech balloon near the top of the panel, all-caps lettering
-// (comic convention), with a tail pointing down toward the speaker.
-async function addSpeechBubble(imageBuf: Buffer, text: string): Promise<Buffer> {
+// Pick a balloon type: honor the writer's tag, else infer from punctuation so
+// exclamations still pop as shouts and internal lines read as thoughts.
+function balloonType(pd: PanelDescription): DialogueType {
+  const d = (pd.dialogue || "").trim();
+  // Internal monologue is a deliberate writer choice — always honor it.
+  if (pd.dialogueType === "thought") return "thought";
+  // Otherwise let exclamations pop as shouts even if tagged plain speech.
+  if (/!/.test(d) || (d.length > 1 && d === d.toUpperCase())) return "shout";
+  if (pd.dialogueType === "shout") return "shout";
+  if (/^\.\.\.|\.\.\.$|^\(.*\)$/.test(d)) return "thought";
+  return "speech";
+}
+
+// A jagged starburst outline (shout balloon).
+function burstPath(cx: number, cy: number, rx: number, ry: number, spikes = 14): string {
+  const pts: string[] = [];
+  for (let i = 0; i < spikes * 2; i++) {
+    const isOuter = i % 2 === 0;
+    const r = isOuter ? 1 : 0.78;
+    const a = (Math.PI * i) / spikes - Math.PI / 2;
+    pts.push(`${(cx + Math.cos(a) * rx * r).toFixed(1)},${(cy + Math.sin(a) * ry * r).toFixed(1)}`);
+  }
+  return pts.join(" ");
+}
+
+// A puffy cloud outline (thought balloon) built from outward arcs.
+function cloudPath(x: number, y: number, w: number, h: number, r: number): string {
+  const nx = Math.max(3, Math.round(w / (2 * r)));
+  const ny = Math.max(2, Math.round(h / (2 * r)));
+  const dx = w / nx;
+  const dy = h / ny;
+  let d = `M ${x} ${y}`;
+  for (let i = 0; i < nx; i++) d += ` a ${dx / 2} ${r} 0 0 1 ${dx} 0`;
+  for (let i = 0; i < ny; i++) d += ` a ${r} ${dy / 2} 0 0 1 0 ${dy}`;
+  for (let i = 0; i < nx; i++) d += ` a ${dx / 2} ${r} 0 0 1 ${-dx} 0`;
+  for (let i = 0; i < ny; i++) d += ` a ${r} ${dy / 2} 0 0 1 0 ${-dy}`;
+  return d + " Z";
+}
+
+// Opaque comic balloon near the top of the panel, all-caps lettering. Shape
+// varies by type: rounded speech, jagged shout, puffy thought.
+async function addSpeechBubble(imageBuf: Buffer, text: string, type: DialogueType = "speech"): Promise<Buffer> {
   const meta = await sharp(imageBuf).metadata();
   const w = meta.width || 300;
   const h = meta.height || 300;
@@ -309,7 +352,7 @@ async function addSpeechBubble(imageBuf: Buffer, text: string): Promise<Buffer> 
   const fontSize = Math.max(13, Math.min(20, Math.round(w / 22)));
   const lineH = Math.round(fontSize * 1.35);
   const avgCharW = fontSize * 0.62;
-  const maxPerLine = Math.max(8, Math.floor((w * 0.82) / avgCharW));
+  const maxPerLine = Math.max(8, Math.floor((w * 0.78) / avgCharW));
   const maxLines = h < 200 ? 2 : h < 340 ? 3 : 4;
   const lines = wrapText(content, maxPerLine, maxLines);
 
@@ -317,7 +360,7 @@ async function addSpeechBubble(imageBuf: Buffer, text: string): Promise<Buffer> 
   const bubbleW = Math.min(w - 16, Math.round(longest * avgCharW + fontSize * 1.8));
   const bubbleH = lines.length * lineH + Math.round(fontSize * 1.1);
   const bx = Math.round((w - bubbleW) / 2);
-  const by = 10;
+  const by = 12;
   const cx = w / 2;
   const tailBase = by + bubbleH;
 
@@ -326,14 +369,61 @@ async function addSpeechBubble(imageBuf: Buffer, text: string): Promise<Buffer> 
     .map((l, i) => `<tspan x="${cx}" dy="${i === 0 ? 0 : lineH}">${escapeXml(l)}</tspan>`)
     .join("");
 
-  // Tail first (behind), balloon on top so the balloon border hides the seam.
-  const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
-      <polygon points="${cx - 11},${tailBase - 6} ${cx + 11},${tailBase - 6} ${cx - 2},${tailBase + 16}"
+  let shape: string;
+  if (type === "shout") {
+    const pad = fontSize * 1.2;
+    const pts = burstPath(cx, by + bubbleH / 2, bubbleW / 2 + pad, bubbleH / 2 + pad);
+    shape = `<polygon points="${pts}" fill="#ffffff" stroke="#000000" stroke-width="3" stroke-linejoin="round"/>`;
+  } else if (type === "thought") {
+    const r = Math.round(fontSize * 0.7);
+    shape = `<path d="${cloudPath(bx, by, bubbleW, bubbleH, r)}" fill="#ffffff" stroke="#000000" stroke-width="2.5"/>
+      <circle cx="${cx - 6}" cy="${tailBase + 12}" r="6" fill="#ffffff" stroke="#000000" stroke-width="2"/>
+      <circle cx="${cx - 16}" cy="${tailBase + 26}" r="4" fill="#ffffff" stroke="#000000" stroke-width="2"/>`;
+  } else {
+    shape = `<polygon points="${cx - 11},${tailBase - 6} ${cx + 11},${tailBase - 6} ${cx - 2},${tailBase + 16}"
                fill="#ffffff" stroke="#000000" stroke-width="2.5" stroke-linejoin="round"/>
       <rect x="${bx}" y="${by}" width="${bubbleW}" height="${bubbleH}" rx="${Math.round(bubbleH / 2.6)}" ry="${Math.round(bubbleH / 2.6)}"
-            fill="#ffffff" stroke="#000000" stroke-width="2.5"/>
+            fill="#ffffff" stroke="#000000" stroke-width="2.5"/>`;
+  }
+
+  const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+      ${shape}
       <text x="${cx}" y="${textStartY}" font-family="'Arial Black', 'Helvetica Neue', Helvetica, sans-serif"
             font-size="${fontSize}" font-weight="900" fill="#000000" text-anchor="middle">${tspans}</text>
+    </svg>`;
+
+  return sharp(imageBuf)
+    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+    .png()
+    .toBuffer();
+}
+
+// Big angled onomatopoeia word art for action panels.
+function sfxColor(word: string): string {
+  const palette = ["#ffd23f", "#e63946", "#4cc9f0", "#ff7b00"];
+  let hash = 0;
+  for (let i = 0; i < word.length; i++) hash = (hash * 31 + word.charCodeAt(i)) >>> 0;
+  return palette[hash % palette.length];
+}
+
+async function addSfx(imageBuf: Buffer, sfx: string): Promise<Buffer> {
+  const meta = await sharp(imageBuf).metadata();
+  const w = meta.width || 300;
+  const h = meta.height || 300;
+
+  const word = sfx.toUpperCase().slice(0, 12);
+  const fontSize = Math.max(30, Math.min(Math.round(w / 4.5), Math.floor((w * 0.9) / (word.length * 0.62))));
+  const fill = sfxColor(word);
+  const cx = Math.round(w * 0.5);
+  const cy = Math.round(h * 0.66);
+  const angle = -12;
+
+  const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+      <g transform="rotate(${angle} ${cx} ${cy})">
+        <text x="${cx}" y="${cy}" font-family="'Arial Black', 'Impact', sans-serif" font-size="${fontSize}" font-weight="900"
+              fill="${fill}" stroke="#000000" stroke-width="${Math.max(4, Math.round(fontSize / 8))}"
+              paint-order="stroke" stroke-linejoin="round" text-anchor="middle" dominant-baseline="middle">${escapeXml(word)}</text>
+      </g>
     </svg>`;
 
   return sharp(imageBuf)

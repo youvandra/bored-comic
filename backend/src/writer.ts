@@ -31,6 +31,9 @@ PANEL COMPOSITION (vary across pages):
 CHARACTER DESIGN: Include age, body type, hair (color + style), eyes, distinctive clothing, and unique features. Be VISUAL — "young woman, short purple hair, goggles on forehead, worn leather jacket, cybernetic arm" not just "girl".
 
 DIALOGUE: Keep under 30 characters per line. Punchy. Comics are visual — show emotion through expression, not exposition.
+- dialogueType: "shout" for yelling/exclamations, "thought" for internal monologue, "speech" for normal talk.
+
+SOUND EFFECTS (sfx): On high-impact action panels (hits, crashes, explosions, gunfire, magic), add a punchy onomatopoeia in ALL CAPS — "POW", "CRASH", "BOOM", "SLASH", "THWIP". Leave sfx empty on calm/dialogue panels. Do NOT overuse — at most one per page.
 
 Output ONLY valid JSON:
 {
@@ -46,6 +49,8 @@ Output ONLY valid JSON:
       "scene": "VISUAL — lighting, setting, character poses, expressions, mood",
       "characters": ["names"],
       "dialogue": "short, under 30 chars (optional)",
+      "dialogueType": "speech | shout | thought (optional, default speech)",
+      "sfx": "onomatopoeia in CAPS for action panels only (optional)",
       "cameraAngle": "close-up | wide shot | low angle | over-shoulder (optional)"
     }]
   }]
