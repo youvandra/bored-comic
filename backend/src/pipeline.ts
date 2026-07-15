@@ -32,9 +32,8 @@ export async function runPipeline(
 
   hooks.setStatus("illustrating");
   const totalPanels = storyboard.pages.reduce((s, p) => s + p.panels, 0);
-  const pageResults: PageResult[] = [];
 
-  for (const page of storyboard.pages) {
+  const pageTasks = storyboard.pages.map(async (page) => {
     const layouts = pickLayout(page.panelDescriptions.length);
     const panelImages: ImageGenResult[] = [];
 
@@ -42,36 +41,17 @@ export async function runPipeline(
       if (i > 0) await new Promise((r) => setTimeout(r, 1500));
       const pd = page.panelDescriptions[i]!;
       const layout = layouts.find((l) => l.panelIndex === i) || layouts[i % layouts.length]!;
-
       const prompt = buildPanelPrompt(pd, storyboard.characters, input.style || "manga", colorMode);
-
-      // Compute panel pixel dimensions from layout
       const pw = Math.round((PAGE_W - GUTTER) * layout.w - GUTTER);
       const ph = Math.round((PAGE_H - GUTTER) * layout.h - GUTTER);
 
-      const img = await generatePanel({
-        prompt,
-        targetW: pw,
-        targetH: ph,
-        pageNumber: page.page,
-        panelIndex: i,
-        workDir,
-        jobId,
-      });
+      const img = await generatePanel({ prompt, targetW: pw, targetH: ph, pageNumber: page.page, panelIndex: i, workDir, jobId });
       panelImages.push(img);
     }
 
-    // Assemble page with dynamic layouts
-    const assembledPath = await assemblePage({
-      panels: panelImages,
-      layouts,
-      pageNumber: page.page,
-      workDir,
-      dialogue: page.panelDescriptions.map((pd) => pd.dialogue),
-      colorMode,
-    });
+    await assemblePage({ panels: panelImages, layouts, pageNumber: page.page, workDir, dialogue: page.panelDescriptions.map((pd) => pd.dialogue), colorMode });
 
-    pageResults.push({
+    return {
       page: page.page,
       panels: page.panels,
       storyBeat: page.storyBeat,
@@ -83,8 +63,10 @@ export async function runPipeline(
         layout: `${layouts.length}p`,
         caveat: "Generated from text prompt — character appearance may vary slightly across pages.",
       },
-    });
-  }
+    };
+  });
+
+  const pageResults = await Promise.all(pageTasks);
 
   hooks.setStatus("assembling");
   const pdfUrl = await buildPdf(pageResults, workDir, jobId);

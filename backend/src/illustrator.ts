@@ -22,7 +22,6 @@ export interface GeneratePanelInput {
 export async function generatePanel(input: GeneratePanelInput): Promise<ImageGenResult> {
   const { prompt, pageNumber, panelIndex, workDir } = input;
 
-  // FLUX generates square, we resize later via sharp
   const response = await fetch(CF_AI_URL, {
     method: "POST",
     headers: {
@@ -31,18 +30,22 @@ export async function generatePanel(input: GeneratePanelInput): Promise<ImageGen
     },
     body: JSON.stringify({
       prompt,
-      steps: 4,
+      steps: config.fluxSteps,
     }),
   });
 
   if (!response.ok) {
     const err = await response.text().catch(() => "unknown");
+    if (response.status === 400 && err.includes("NSFW")) {
+      throw new Error("Image generation blocked: prompt triggered safety filter. Try rephrasing without sensitive words.");
+    }
     throw new Error(`Cloudflare AI error (${response.status}): ${err}`);
   }
 
   const data = await response.json() as { success: boolean; result?: { image?: string }; errors?: string[] };
   if (!data.success || !data.result?.image) {
-    throw new Error(`Cloudflare AI generation failed: ${data.errors?.[0] || "unknown"}`);
+    const msg = data.errors?.[0] || "unknown";
+    throw new Error(`Image generation failed: ${msg}`);
   }
 
   const buffer = Buffer.from(data.result.image, "base64");

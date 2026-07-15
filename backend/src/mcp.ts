@@ -55,13 +55,21 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
     async (input) => {
       const jobId = `cg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-      const delivery = await runPipeline(jobId, input as GenerateComicInput, {
-        setStatus: () => {},
-      });
+      try {
+        const delivery = await runPipeline(jobId, input as GenerateComicInput, {
+          setStatus: () => {},
+        });
 
-      return {
-        content: [{ type: "text", text: JSON.stringify(delivery, null, 2) }],
-      };
+        return {
+          content: [{ type: "text", text: JSON.stringify(delivery, null, 2) }],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Generation failed";
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: msg, jobId }, null, 2) }],
+          isError: true,
+        };
+      }
     },
   );
 
