@@ -13,8 +13,8 @@ export interface PipelineHooks {
 }
 
 const PAGE_W = 800;
-const PAGE_H = 1067; // ~3:4 ratio
-const GUTTER = 12;
+const PAGE_H = 1067;
+const GUTTER = 8;
 
 export async function runPipeline(
   jobId: string,
@@ -143,37 +143,22 @@ async function assemblePage(params: {
 
   for (let i = 0; i < panels.length; i++) {
     const layout = layouts.find((l) => l.panelIndex === i) || layouts[i % layouts.length]!;
+    const pw = Math.round((PAGE_W - GUTTER) * layout.w - GUTTER);
+    const ph = Math.round((PAGE_H - GUTTER) * layout.h - GUTTER);
+
     const pngBuf = await sharp(panels[i].path)
-      .resize(
-        Math.round((PAGE_W - GUTTER * 2) * layout.w),
-        Math.round((PAGE_H - GUTTER * 2) * layout.h),
-        { fit: "contain", background: "#ffffff" },
-      )
+      .resize(pw, ph, { fit: "cover", position: "centre" })
       .png()
       .toBuffer();
 
-    // Add dialogue as overlay on the panel
     const diag = dialogue[i];
     const buf = diag ? await addSpeechBubble(pngBuf, diag) : pngBuf;
 
-    const x = Math.round(GUTTER + (PAGE_W - GUTTER * 2) * layout.x);
-    const y = Math.round(GUTTER + (PAGE_H - GUTTER * 2) * layout.y);
+    const x = Math.round(GUTTER + (PAGE_W - GUTTER) * layout.x);
+    const y = Math.round(GUTTER + (PAGE_H - GUTTER) * layout.y);
 
     composite.push({ input: buf as Buffer, top: y, left: x });
   }
-
-  // Draw panel borders
-  const svgBorders = layouts.map((l) => {
-    const x = Math.round(GUTTER + (PAGE_W - GUTTER * 2) * l.x);
-    const y = Math.round(GUTTER + (PAGE_H - GUTTER * 2) * l.y);
-    const w = Math.round((PAGE_W - GUTTER * 2) * l.w);
-    const h = Math.round((PAGE_H - GUTTER * 2) * l.h);
-    return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="black" stroke-width="2"/>`;
-  });
-
-  const borderSvg = Buffer.from(
-    `<svg width="${PAGE_W}" height="${PAGE_H}" xmlns="http://www.w3.org/2000/svg">${svgBorders.join("")}</svg>`,
-  );
 
   const outputPath = join(workDir, `page-${pageNumber}.png`);
   let pipeline = sharp({
@@ -184,7 +169,7 @@ async function assemblePage(params: {
       background: "#ffffff",
     },
   })
-    .composite([...composite, { input: borderSvg, top: 0, left: 0 }]);
+    .composite(composite);
 
   if (colorMode === "bw") {
     pipeline = pipeline.grayscale();
@@ -200,20 +185,21 @@ async function addSpeechBubble(imageBuf: Buffer, text: string): Promise<Buffer> 
 
   const meta = await sharp(imageBuf).metadata();
   const w = meta.width || 300;
-  const bubbleH = 50;
+  const h = meta.height || 300;
 
-  const svg = `<svg width="${w}" height="${bubbleH * 2 + 10}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="10" y="10" width="${w - 20}" height="${bubbleH}" rx="8" ry="8"
-            fill="white" fill-opacity="0.85" stroke="black" stroke-width="1.5"/>
-      <text x="${w / 2}" y="${bubbleH / 2 + 12}" font-family="sans-serif" font-size="18" font-weight="bold"
+  const bubbleH = 48;
+  const bubbleY = h - bubbleH - 8;
+
+  const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="6" y="${bubbleY}" width="${w - 12}" height="${bubbleH}" rx="6" ry="6"
+            fill="white" fill-opacity="0.9" stroke="black" stroke-width="1.5"/>
+      <text x="${w / 2}" y="${bubbleY + bubbleH / 2 + 1}" font-family="sans-serif" font-size="15" font-weight="bold"
             fill="black" text-anchor="middle" dominant-baseline="middle"
             xml:space="preserve">${escapeXml(truncated)}</text>
     </svg>`;
 
-  const bubbleImg = await sharp(Buffer.from(svg)).resize(w, bubbleH + 10).png().toBuffer();
-
   return sharp(imageBuf)
-    .composite([{ input: bubbleImg, top: 0, left: 0 }])
+    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
     .png()
     .toBuffer();
 }

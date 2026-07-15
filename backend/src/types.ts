@@ -97,39 +97,43 @@ export const MAX_PAGES = 10;
 export const MIN_PAGES = 1;
 
 // Layout templates for 1-4 panels on a 3:4 page
-// Positions as fractions of page width/height
+// All aspect ratios kept reasonable (between 1:2 and 2:1) for 1:1 FLUX images
+// Positions as fractions of page width/height, GUTTER = 12px
 const LAYOUTS: Record<number, PanelLayout[][]> = {
   1: [
-    // Full page
     [{ panelIndex: 0, x: 0, y: 0, w: 1, h: 1 }],
   ],
   2: [
-    // Side by side (vertical split)
+    // Split horizontal (50/50)
     [{ panelIndex: 0, x: 0, y: 0, w: 0.5, h: 1 }, { panelIndex: 1, x: 0.5, y: 0, w: 0.5, h: 1 }],
-    // Stacked (horizontal split)
+    // Split vertical (50/50)
     [{ panelIndex: 0, x: 0, y: 0, w: 1, h: 0.5 }, { panelIndex: 1, x: 0, y: 0.5, w: 1, h: 0.5 }],
-    // Hero + strip
-    [{ panelIndex: 0, x: 0, y: 0, w: 0.65, h: 1 }, { panelIndex: 1, x: 0.65, y: 0, w: 0.35, h: 1 }],
+    // 60/40 split vertical (top panel bigger)
+    [{ panelIndex: 0, x: 0, y: 0, w: 1, h: 0.6 }, { panelIndex: 1, x: 0, y: 0.6, w: 1, h: 0.4 }],
+    // 60/40 split horizontal
+    [{ panelIndex: 0, x: 0, y: 0, w: 0.6, h: 1 }, { panelIndex: 1, x: 0.6, y: 0, w: 0.4, h: 1 }],
   ],
   3: [
-    // Top hero, bottom 2-col
-    [{ panelIndex: 0, x: 0, y: 0, w: 1, h: 0.55 }, { panelIndex: 1, x: 0, y: 0.55, w: 0.5, h: 0.45 }, { panelIndex: 2, x: 0.5, y: 0.55, w: 0.5, h: 0.45 }],
-    // Left column, right 2-row
+    // Top wide panel, bottom 2-col
+    [{ panelIndex: 0, x: 0, y: 0, w: 1, h: 0.5 }, { panelIndex: 1, x: 0, y: 0.5, w: 0.5, h: 0.5 }, { panelIndex: 2, x: 0.5, y: 0.5, w: 0.5, h: 0.5 }],
+    // Top 2-col, bottom wide panel
+    [{ panelIndex: 0, x: 0, y: 0, w: 0.5, h: 0.5 }, { panelIndex: 1, x: 0.5, y: 0, w: 0.5, h: 0.5 }, { panelIndex: 2, x: 0, y: 0.5, w: 1, h: 0.5 }],
+    // 3 equal columns
+    [{ panelIndex: 0, x: 0, y: 0, w: 0.33, h: 1 }, { panelIndex: 1, x: 0.33, y: 0, w: 0.34, h: 1 }, { panelIndex: 2, x: 0.67, y: 0, w: 0.33, h: 1 }],
+    // Left half, right 2-stack
     [{ panelIndex: 0, x: 0, y: 0, w: 0.5, h: 1 }, { panelIndex: 1, x: 0.5, y: 0, w: 0.5, h: 0.5 }, { panelIndex: 2, x: 0.5, y: 0.5, w: 0.5, h: 0.5 }],
-    // Top 2-col, bottom hero
-    [{ panelIndex: 0, x: 0, y: 0, w: 0.5, h: 0.45 }, { panelIndex: 1, x: 0.5, y: 0, w: 0.5, h: 0.45 }, { panelIndex: 2, x: 0, y: 0.45, w: 1, h: 0.55 }],
-    // Diagonal emphasis (3 vertical strips, middle wider)
-    [{ panelIndex: 0, x: 0, y: 0, w: 0.3, h: 1 }, { panelIndex: 1, x: 0.3, y: 0, w: 0.4, h: 1 }, { panelIndex: 2, x: 0.7, y: 0, w: 0.3, h: 1 }],
+    // 3 equal rows
+    [{ panelIndex: 0, x: 0, y: 0, w: 1, h: 0.33 }, { panelIndex: 1, x: 0, y: 0.33, w: 1, h: 0.34 }, { panelIndex: 2, x: 0, y: 0.67, w: 1, h: 0.33 }],
   ],
   4: [
     // Classic 2x2 grid
     [{ panelIndex: 0, x: 0, y: 0, w: 0.5, h: 0.5 }, { panelIndex: 1, x: 0.5, y: 0, w: 0.5, h: 0.5 }, { panelIndex: 2, x: 0, y: 0.5, w: 0.5, h: 0.5 }, { panelIndex: 3, x: 0.5, y: 0.5, w: 0.5, h: 0.5 }],
-    // Left column, right 3-row
-    [{ panelIndex: 0, x: 0, y: 0, w: 0.45, h: 1 }, { panelIndex: 1, x: 0.45, y: 0, w: 0.55, h: 0.33 }, { panelIndex: 2, x: 0.45, y: 0.33, w: 0.55, h: 0.33 }, { panelIndex: 3, x: 0.45, y: 0.66, w: 0.55, h: 0.34 }],
-    // Top hero, bottom 3-col
+    // Top wide, bottom 3-col
     [{ panelIndex: 0, x: 0, y: 0, w: 1, h: 0.5 }, { panelIndex: 1, x: 0, y: 0.5, w: 0.33, h: 0.5 }, { panelIndex: 2, x: 0.33, y: 0.5, w: 0.34, h: 0.5 }, { panelIndex: 3, x: 0.67, y: 0.5, w: 0.33, h: 0.5 }],
-    // Top 2-col, bottom 2-col (uneven rows)
-    [{ panelIndex: 0, x: 0, y: 0, w: 0.5, h: 0.4 }, { panelIndex: 1, x: 0.5, y: 0, w: 0.5, h: 0.4 }, { panelIndex: 2, x: 0, y: 0.4, w: 0.5, h: 0.6 }, { panelIndex: 3, x: 0.5, y: 0.4, w: 0.5, h: 0.6 }],
+    // Top 2-col, bottom 2-col (uneven)
+    [{ panelIndex: 0, x: 0, y: 0, w: 0.5, h: 0.45 }, { panelIndex: 1, x: 0.5, y: 0, w: 0.5, h: 0.45 }, { panelIndex: 2, x: 0, y: 0.45, w: 0.5, h: 0.55 }, { panelIndex: 3, x: 0.5, y: 0.45, w: 0.5, h: 0.55 }],
+    // Left 2-stack, right 2-stack
+    [{ panelIndex: 0, x: 0, y: 0, w: 0.5, h: 0.5 }, { panelIndex: 1, x: 0, y: 0.5, w: 0.5, h: 0.5 }, { panelIndex: 2, x: 0.5, y: 0, w: 0.5, h: 0.5 }, { panelIndex: 3, x: 0.5, y: 0.5, w: 0.5, h: 0.5 }],
   ],
 };
 
