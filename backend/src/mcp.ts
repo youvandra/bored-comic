@@ -2,14 +2,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { runPipeline } from "./pipeline.js";
 import { GenerateComicInput, MAX_PAGES, MIN_PAGES } from "./types.js";
-import type { ComicDelivery } from "./types.js";
+import { x402Info } from "./x402.js";
 
 export function buildMcpServer(callerIp = "unknown"): McpServer {
   const server = new McpServer(
     { name: "BoredComic", version: "0.1.0" },
     {
       instructions:
-        "BoredComic — AI comic generator. Send a prompt, genre, page count, and style; receive a complete comic PDF + per-page images + decision-grade metadata. One-shot generation, no revision loop.",
+        "BoredComic — AI comic generator. Send a prompt, genre, page count, and style; receive a complete comic PDF + per-page images + decision-grade metadata. One-shot generation, no revision loop. All tool calls are paid via x402 — no free quota. Call get_quota for pricing before your first call.",
     },
   );
 
@@ -51,6 +51,22 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
 
       return {
         content: [{ type: "text", text: JSON.stringify(delivery, null, 2) }],
+      };
+    },
+  );
+
+  server.registerTool(
+    "get_quota",
+    {
+      title: "Check pricing",
+      annotations: { readOnlyHint: true },
+      description:
+        "Free billing introspection: returns current x402 pricing, payment address, and whether the gate is enabled. This tool is always free — never counts against any quota.",
+      inputSchema: {},
+    },
+    async () => {
+      return {
+        content: [{ type: "text", text: JSON.stringify(x402Info(), null, 2) }],
       };
     },
   );

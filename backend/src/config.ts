@@ -16,5 +16,4 @@ export const config = {
   x402Mode: (process.env.X402_MODE || "off") as "off" | "demo" | "on",
   x402PayTo: process.env.X402_PAY_TO || "",
   x402PriceUsd: process.env.X402_PRICE_USD || "0.05",
-  x402FreeDaily: Number(process.env.X402_FREE_DAILY || "20"),
 };

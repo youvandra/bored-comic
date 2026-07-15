@@ -7,7 +7,7 @@
 | **Type** | A2MCP — pay-per-call via x402 |
 | **Agent ID** | — |
 | **Endpoint** | — |
-| **Price** | 0.5–1.5 USDT per generation · 20 free calls/IP/day |
+| **Price** | 0.5–1.5 USDT per generation · no free calls |
 
 ## Why an agent needs this
 
