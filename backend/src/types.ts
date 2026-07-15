@@ -77,6 +77,7 @@ export interface ComicDelivery {
   language: string;
   colorMode: ColorMode;
   characters: Character[];
+  coverUrl: string;
   pageUrls: string[];
   pdfUrl: string;
   perPage: PageResult[];

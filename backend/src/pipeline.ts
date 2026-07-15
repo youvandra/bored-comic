@@ -86,7 +86,18 @@ export async function runPipeline(
   const pageResults = await Promise.all(pageTasks);
 
   hooks.setStatus("assembling");
-  const pdfUrl = await buildPdf(pageResults, workDir, jobId);
+  const coverUrl = await assembleCover({
+    storyboard,
+    genre: input.genre,
+    style: input.style || "manga",
+    colorMode,
+    workDir,
+    jobId,
+    pageW,
+    pageH,
+    seed: jobSeed,
+  });
+  const pdfUrl = await buildPdf(pageResults, workDir, jobId, true);
 
   const elapsedSec = Math.round((Date.now() - startTime) / 1000);
 
@@ -107,7 +118,8 @@ export async function runPipeline(
     language: lang,
     colorMode,
     characters: storyboard.characters,
-    pageUrls: pageResults.map((p) => p.imageUrl),
+    coverUrl,
+    pageUrls: [coverUrl, ...pageResults.map((p) => p.imageUrl)],
     pdfUrl,
     perPage: pageResults,
     evidence: {
@@ -121,6 +133,23 @@ export async function runPipeline(
       caveat: "Comic is AI-generated. Story coherence and visual consistency are heuristic, not guaranteed.",
     },
   };
+}
+
+// Speech and narration are overlaid separately, so keep the art free of any
+// baked-in lettering — FLUX otherwise renders garbled text that can't be read.
+const NO_TEXT_TAG = " Absolutely no text, no speech bubbles, no captions, no letters, no watermark, no signature in the image.";
+
+function styleTag(style: string): string {
+  return style === "manga" ? "manga style, screentone textures, expressive line art, dynamic angles"
+    : style === "western" ? "western comic style, bold inks, flat colors, confident lines"
+    : style === "semi-realistic" ? "semi-realistic, detailed shading, textured, painterly"
+    : "chibi style, cute proportions, large eyes, soft rendering";
+}
+
+function bwTag(colorMode: string): string {
+  return colorMode === "bw"
+    ? ", grayscale, high contrast, ink wash, no colors"
+    : ", vibrant colors, rich palette, color harmony";
 }
 
 export function buildPanelPrompt(
@@ -137,20 +166,8 @@ export function buildPanelPrompt(
     .join("; ");
 
   const qualityTags = "professional comic book illustration, highly detailed, sharp focus, cinematic composition, clean bold linework, strong readable silhouette, clear focal subject, dramatic lighting";
-  const styleTag = style === "manga" ? "manga style, screentone textures, expressive line art, dynamic angles"
-    : style === "western" ? "western comic style, bold inks, flat colors, confident lines"
-    : style === "semi-realistic" ? "semi-realistic, detailed shading, textured, painterly"
-    : "chibi style, cute proportions, large eyes, soft rendering";
 
-  const bwTag = colorMode === "bw"
-    ? ", grayscale, high contrast, ink wash, no colors"
-    : ", vibrant colors, rich palette, color harmony";
-
-  // Speech and narration are overlaid separately, so keep the art free of any
-  // baked-in lettering — FLUX otherwise renders garbled text that can't be read.
-  const noTextTag = " Absolutely no text, no speech bubbles, no captions, no letters, no watermark, no signature in the image.";
-
-  return `${qualityTags}, ${styleTag}${bwTag}. ${pd.scene}. ${charRefs}.${pd.cameraAngle ? ` Camera angle: ${pd.cameraAngle}.` : " Dynamic angle."} Single comic panel, consistent character designs.${noTextTag}`;
+  return `${qualityTags}, ${styleTag(style)}${bwTag(colorMode)}. ${pd.scene}. ${charRefs}.${pd.cameraAngle ? ` Camera angle: ${pd.cameraAngle}.` : " Dynamic angle."} Single comic panel, consistent character designs.${NO_TEXT_TAG}`;
 }
 
 async function assemblePage(params: {
@@ -323,6 +340,95 @@ async function addSpeechBubble(imageBuf: Buffer, text: string): Promise<Buffer> 
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
     .png()
     .toBuffer();
+}
+
+// Generate a comic-book cover: a hero key-art image with a bold title,
+// genre badge, and synopsis caption overlaid.
+async function assembleCover(params: {
+  storyboard: Storyboard;
+  genre?: string;
+  style: string;
+  colorMode: string;
+  workDir: string;
+  jobId: string;
+  pageW: number;
+  pageH: number;
+  seed: number;
+}): Promise<string> {
+  const { storyboard, genre, style, colorMode, workDir, jobId, pageW, pageH, seed } = params;
+
+  const charRefs = storyboard.characters.slice(0, 3).map((c) => `${c.name}: ${c.appearance}`).join("; ");
+  const prompt = `dramatic comic book cover key art, epic dynamic hero composition, ${storyboard.synopsis}. Main characters: ${charRefs}. ${styleTag(style)}${bwTag(colorMode)}. highly detailed, bold linework, poster-worthy.${NO_TEXT_TAG}`;
+
+  const hero = await generatePanel({ prompt, seed, pageNumber: 0, panelIndex: 0, workDir, jobId });
+  const bg = await sharp(hero.path)
+    .resize(pageW, pageH, { fit: "cover", position: sharp.strategy.attention })
+    .png()
+    .toBuffer();
+
+  let pipeline = sharp(bg).composite([
+    { input: renderCoverOverlay(storyboard.title, genre, storyboard.synopsis, pageW, pageH), top: 0, left: 0 },
+  ]);
+  if (colorMode === "bw") pipeline = pipeline.grayscale();
+
+  await pipeline.png().toFile(join(workDir, "cover.png"));
+  return `/comics/${jobId}/cover.png`;
+}
+
+function renderCoverOverlay(title: string, genre: string | undefined, synopsis: string, pageW: number, pageH: number): Buffer {
+  const M = GUTTER + 6;
+
+  // Genre badge (top-left).
+  const genreLabel = (genre || "comic").toUpperCase();
+  const badgeW = genreLabel.length * 12 + 28;
+  const badgeH = 32;
+
+  // Big outlined title, centered near the top. Arial Black glyphs are wide
+  // (~0.92em each), so size to fit the widest line within the page margins.
+  const titleLines = wrapText(title.toUpperCase(), 11, 2);
+  const longest = Math.max(...titleLines.map((l) => l.length), 1);
+  const titleSize = Math.max(34, Math.min(Math.round(pageW / 7), Math.floor((pageW - M * 2) / (longest * 0.92))));
+  const titleLineH = Math.round(titleSize * 1.02);
+  const titleBaseline = M + badgeH + 28 + titleSize;
+  const titleSpans = titleLines
+    .map((l, i) => `<tspan x="${pageW / 2}" dy="${i === 0 ? 0 : titleLineH}">${escapeXml(l)}</tspan>`)
+    .join("");
+
+  // Synopsis caption box (bottom).
+  const synSize = 16;
+  const synLineH = 22;
+  const synMaxPerLine = Math.max(16, Math.floor((pageW - M * 2 - 24) / (synSize * 0.5)));
+  const synLines = wrapText(synopsis, synMaxPerLine, 3);
+  const synBoxH = synLines.length * synLineH + 20;
+  const synY = pageH - M - synBoxH;
+  const synSpans = synLines
+    .map((l, i) => `<tspan x="${M + 12}" dy="${i === 0 ? 0 : synLineH}">${escapeXml(l)}</tspan>`)
+    .join("");
+
+  const svg = `<svg width="${pageW}" height="${pageH}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="topScrim" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#000000" stop-opacity="0.6"/>
+          <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <rect x="0" y="0" width="${pageW}" height="${Math.round(pageH * 0.3)}" fill="url(#topScrim)"/>
+
+      <rect x="${M}" y="${M}" width="${badgeW}" height="${badgeH}" rx="4" fill="#e63946" stroke="#000000" stroke-width="3"/>
+      <text x="${M + badgeW / 2}" y="${M + badgeH / 2 + 6}" font-family="'Arial Black', sans-serif" font-size="17" font-weight="900" fill="#ffffff" text-anchor="middle">${escapeXml(genreLabel)}</text>
+
+      <text x="${pageW / 2}" y="${titleBaseline}" font-family="'Arial Black', 'Helvetica', sans-serif" font-size="${titleSize}" font-weight="900"
+            fill="#ffd23f" stroke="#000000" stroke-width="${Math.max(3, Math.round(titleSize / 12))}" paint-order="stroke" stroke-linejoin="round"
+            text-anchor="middle">${titleSpans}</text>
+
+      <rect x="${M}" y="${synY}" width="${pageW - M * 2}" height="${synBoxH}" rx="3" fill="#f5e9c8" stroke="#000000" stroke-width="3"/>
+      <text x="${M + 12}" y="${synY + 22}" font-family="Georgia, 'Times New Roman', serif" font-size="${synSize}" font-style="italic" fill="#1a1a1a">${synSpans}</text>
+
+      <text x="${pageW - M}" y="${synY - 12}" font-family="'Arial Black', sans-serif" font-size="15" font-weight="900"
+            fill="#ffffff" stroke="#000000" stroke-width="0.8" paint-order="stroke" text-anchor="end">BOREDCOMIC</text>
+    </svg>`;
+
+  return Buffer.from(svg);
 }
 
 function escapeXml(s: string): string {
