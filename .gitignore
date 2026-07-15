@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.log
+backend/data/
+backend/slides/
+backend/comics/
+.DS_Store

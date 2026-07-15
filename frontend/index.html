@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bored Comic — AI Comic Generator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, sans-serif; }
+    .brut { border: 3px solid #000; box-shadow: 6px 6px 0 #000; }
+    .brut-sm { border: 2px solid #000; box-shadow: 3px 3px 0 #000; }
+    .page-img { width: 100%; max-width: 400px; border: 2px solid #000; }
+  </style>
+</head>
+<body class="bg-[#1a1a2e] text-white min-h-screen">
+  <div x-data="comicgen()" class="max-w-4xl mx-auto px-4 py-8">
+    <header class="mb-8">
+      <h1 class="text-4xl font-black tracking-tight">
+        Bored<span class="bg-fuchsia-500 px-1 brut-sm">Comic</span>
+      </h1>
+      <p class="mt-2 font-medium text-neutral-300">
+        An A2MCP agent on OKX.AI. Describe the comic you want, we generate it.
+      </p>
+    </header>
+
+    <section class="bg-[#16213e] brut p-5 mb-6">
+      <label class="block font-bold mb-1">What comic do you want?</label>
+      <textarea x-model="prompt" placeholder="horror boarding house ghost story, 5 pages, manga style"
+        class="w-full brut-sm p-2 mb-3 bg-[#0f3460] text-white min-h-[80px]"></textarea>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div>
+          <label class="block font-bold text-sm mb-1">Genre</label>
+          <select x-model="genre" class="w-full brut-sm p-2 bg-[#0f3460] text-white">
+            <option value="horror">Horror</option>
+            <option value="romance">Romance</option>
+            <option value="action">Action</option>
+            <option value="comedy">Comedy</option>
+            <option value="manga">Manga</option>
+            <option value="fantasy">Fantasy</option>
+            <option value="sci-fi">Sci-Fi</option>
+            <option value="slice-of-life">Slice of Life</option>
+          </select>
+        </div>
+        <div>
+          <label class="block font-bold text-sm mb-1">Style</label>
+          <select x-model="style" class="w-full brut-sm p-2 bg-[#0f3460] text-white">
+            <option value="manga" selected>Manga</option>
+            <option value="western">Western</option>
+            <option value="semi-realistic">Semi-Realistic</option>
+            <option value="chibi">Chibi</option>
+          </select>
+        </div>
+        <div>
+          <label class="block font-bold text-sm mb-1">Pages</label>
+          <select x-model.number="pages" class="w-full brut-sm p-2 bg-[#0f3460] text-white">
+            <template x-for="n in 10" :key="n">
+              <option :value="n" x-text="n"></option>
+            </template>
+          </select>
+        </div>
+        <div>
+          <label class="block font-bold text-sm mb-1">Aspect</label>
+          <select x-model="aspectRatio" class="w-full brut-sm p-2 bg-[#0f3460] text-white">
+            <option value="3:4">3:4 (Standard)</option>
+        <option value="9:16">9:16 (Mobile)</option>
+            <option value="3:4">3:4 (Standard)</option>
+            <option value="1:1">1:1 (Square)</option>
+          </select>
+        </div>
+      </div>
+
+      <button @click="generate()" :disabled="loading"
+        class="bg-fuchsia-500 brut-sm px-4 py-2 font-black disabled:opacity-50">
+        <span x-show="!loading">Generate Comic</span>
+        <span x-show="loading">Generating...</span>
+      </button>
+      <p x-show="error" x-text="error" class="text-red-400 font-bold mt-3"></p>
+    </section>
+
+    <section x-show="result" class="bg-[#16213e] brut p-5 mb-6">
+      <h2 class="text-2xl font-black mb-2" x-text="result.title"></h2>
+      <p class="text-neutral-300 mb-4" x-text="result.summary"></p>
+
+      <div class="flex gap-2 mb-4">
+        <a :href="result.pdfUrl" target="_blank"
+          class="bg-green-500 text-black brut-sm px-3 py-1 font-bold text-sm">
+          Download PDF
+        </a>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <template x-for="page in result.perPage" :key="page.page">
+          <div class="bg-[#0f3460] p-3 brut-sm">
+            <p class="font-bold text-sm mb-2">
+              Page <span x-text="page.page"></span>
+              <span class="text-neutral-400">(<span x-text="page.panels"></span> panels)</span>
+            </p>
+            <img :src="page.imageUrl" :alt="'Page ' + page.page" class="page-img mb-2"
+                 @error="$el.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22500%22><rect fill=%22%23333%22 width=%22400%22 height=%22500%22/><text fill=%22%23999%22 font-size=%2216%22 x=%2220%22 y=%22250%22>Page ' + page.page + '</text></svg>'">
+            <p class="text-sm text-neutral-300" x-text="page.storyBeat"></p>
+          </div>
+        </template>
+      </div>
+
+      <div class="mt-4 p-3 bg-[#0f3460] brut-sm">
+        <p class="font-bold text-sm mb-1">Characters</p>
+        <template x-for="c in result.characters" :key="c.name">
+          <p class="text-sm text-neutral-300">
+            <span class="text-fuchsas-400 font-bold" x-text="c.name"></span>
+            — <span x-text="c.appearance"></span>
+          </p>
+        </template>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    function comicgen() {
+      return {
+        prompt: '',
+        genre: 'horror',
+        style: 'manga',
+        pages: 5,
+        aspectRatio: '3:4',
+        loading: false,
+        error: '',
+        result: null,
+
+        async generate() {
+          if (!this.prompt.trim()) { this.error = 'Tolong isi prompt dulu.'; return; }
+          this.loading = true;
+          this.error = '';
+          this.result = null;
+
+          try {
+            const res = await fetch('/api/generate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                prompt: this.prompt,
+                genre: this.genre,
+                pages: this.pages,
+                style: this.style,
+                aspectRatio: this.aspectRatio,
+              }),
+            });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              this.error = err.error || `HTTP ${res.status}`;
+              return;
+            }
+            this.result = await res.json();
+          } catch (e) {
+            this.error = e.message || 'Network error';
+          } finally {
+            this.loading = false;
+          }
+        },
+      };
+    }
+  </script>
+</body>
+</html>
