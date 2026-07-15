@@ -29,17 +29,19 @@ export async function runPipeline(
   let totalPromptChars = 0;
 
   for (const page of storyboard.pages) {
-    const panelPromises = page.panelDescriptions.map((pd, i) =>
-      generatePanel({
-        prompt: buildPanelPrompt(pd, storyboard.characters, input.style || "manga"),
+    // Sequential with delay to respect Replicate free-tier rate limit (burst 1)
+    const panelImages: ImageGenResult[] = [];
+    for (let i = 0; i < page.panelDescriptions.length; i++) {
+      if (i > 0) await new Promise((r) => setTimeout(r, 2000));
+      const img = await generatePanel({
+        prompt: buildPanelPrompt(page.panelDescriptions[i]!, storyboard.characters, input.style || "manga"),
         pageNumber: page.page,
         panelIndex: i,
         workDir,
         jobId,
-      }),
-    );
-
-    const panelImages = await Promise.all(panelPromises);
+      });
+      panelImages.push(img);
+    }
 
     const assembled = await assemblePage({
       panels: panelImages,
@@ -49,7 +51,7 @@ export async function runPipeline(
       aspectRatio: input.aspectRatio || "3:4",
     });
 
-    const promptChars = panelPromises.length > 0
+    const promptChars = panelImages.length > 0
       ? panelImages.reduce((s, p) => s + p.promptChars, 0)
       : 0;
     totalPromptChars += promptChars;
