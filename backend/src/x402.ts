@@ -107,8 +107,16 @@ export function x402Gate(req: Request, res: Response, next: NextFunction): void 
   const pages = body?.params?.arguments?.pages ?? 1;
   const price = priceForPages(pages);
 
-  // If the request carries a payment proof, let the SDK verify it
-  if (req.headers["x402-authorization"] || req.headers["x402-payment"] || req.headers["x-pay-signature"]) {
+  // If the request carries a payment proof, let the SDK verify + settle it.
+  // The OKX SDK reads the proof from the PAYMENT-SIGNATURE header (Node lowercases
+  // header keys); the others are kept as harmless fallbacks.
+  if (
+    req.headers["payment-signature"] ||
+    req.headers["x-payment"] ||
+    req.headers["x402-authorization"] ||
+    req.headers["x402-payment"] ||
+    req.headers["x-pay-signature"]
+  ) {
     void paidFor(price)(req, res, next);
     return;
   }
@@ -119,6 +127,7 @@ export function x402Gate(req: Request, res: Response, next: NextFunction): void 
     x402Version: 2,
     resource: {
       url: `${req.protocol}://${req.get("host")}/mcp`,
+      description: "BoredComic comic generation tool call",
       mimeType: "application/json",
     },
     accepts: [{
