@@ -42,12 +42,14 @@ export async function generatePanel(input: GeneratePanelInput): Promise<ImageGen
     throw new Error(`Replicate API error (${response.status}): ${err}`);
   }
 
-  const data = await response.json() as { status: string; output?: string[]; error?: string };
-  if (data.status !== "succeeded" || !data.output?.[0]) {
+  const data = await response.json() as { status: string; output?: string | string[]; error?: string };
+  if (data.status !== "succeeded" || !data.output) {
     throw new Error(`Replicate generation failed: ${data.error || data.status}`);
   }
 
-  const imageUrl = data.output[0];
+  const imageUrl = typeof data.output === "string" ? data.output : data.output[0];
+  if (!imageUrl) throw new Error("Replicate returned empty output");
+
   const imageRes = await fetch(imageUrl);
   if (!imageRes.ok) throw new Error(`Failed to download generated image: ${imageRes.status}`);
 
