@@ -1,4 +1,4 @@
-export type Genre = "horror" | "romance" | "action" | "comedy" | "manga" | "fantasy" | "sci-fi" | "slice-of-life" | "18+";
+export type Genre = "horror" | "romance" | "action" | "comedy" | "manga" | "fantasy" | "sci-fi" | "slice-of-life";
 export type ComicStyle = "manga" | "western" | "semi-realistic" | "chibi";
 export type ColorMode = "color" | "bw";
 

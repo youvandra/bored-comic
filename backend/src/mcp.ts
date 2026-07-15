@@ -4,7 +4,7 @@ import { runPipeline } from "./pipeline.js";
 import { GenerateComicInput, MAX_PAGES, MIN_PAGES } from "./types.js";
 import { x402Info } from "./x402.js";
 
-const GENRES = ["horror", "romance", "action", "comedy", "manga", "fantasy", "sci-fi", "slice-of-life", "18+"] as const;
+const GENRES = ["horror", "romance", "action", "comedy", "manga", "fantasy", "sci-fi", "slice-of-life"] as const;
 const STYLES = ["manga", "western", "semi-realistic", "chibi"] as const;
 const ASPECTS = ["3:4", "9:16", "1:1"] as const;
 

@@ -31,6 +31,23 @@ export interface GeneratePanelInput {
 
 const REQUEST_TIMEOUT_MS = 60_000;
 
+// Global concurrency limiter: caps simultaneous image requests across all jobs
+// so bursts don't blow through Cloudflare rate limits.
+let active = 0;
+const waiters: Array<() => void> = [];
+async function acquireSlot(): Promise<void> {
+  if (active < config.fluxConcurrency) {
+    active++;
+    return;
+  }
+  await new Promise<void>((resolve) => waiters.push(resolve));
+  active++;
+}
+function releaseSlot(): void {
+  active--;
+  waiters.shift()?.();
+}
+
 class NsfwError extends Error {}
 
 // The safety filter often trips on a single innocuous word ("haunted", "blade").
@@ -58,6 +75,21 @@ export async function generatePanel(input: GeneratePanelInput): Promise<ImageGen
 }
 
 async function tryPrompt(
+  prompt: string,
+  seed: number | undefined,
+  pageNumber: number,
+  panelIndex: number,
+  workDir: string,
+): Promise<ImageGenResult> {
+  await acquireSlot();
+  try {
+    return await runProviders(prompt, seed, pageNumber, panelIndex, workDir);
+  } finally {
+    releaseSlot();
+  }
+}
+
+async function runProviders(
   prompt: string,
   seed: number | undefined,
   pageNumber: number,

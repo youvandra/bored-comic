@@ -30,6 +30,8 @@ export const config = {
   cloudflareAccounts: collectCloudflareAccounts(),
 
   fluxSteps: Number(process.env.FLUX_STEPS || "8"),
+  // Max simultaneous image requests across all jobs, to smooth quota bursts.
+  fluxConcurrency: Number(process.env.FLUX_CONCURRENCY || "4"),
 
   xlayerApiKey: process.env.XLAYER_API_KEY || "",
   xlayerSecretKey: process.env.XLAYER_SECRET_KEY || "",

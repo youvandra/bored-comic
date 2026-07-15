@@ -62,7 +62,14 @@ export async function runPipeline(
       const pd = page.panelDescriptions[i]!;
       const prompt = buildPanelPrompt(pd, storyboard.characters, input.style || "manga", colorMode);
 
-      const img = await generatePanel({ prompt, seed: jobSeed, pageNumber: page.page, panelIndex: i, workDir, jobId });
+      let img: ImageGenResult;
+      try {
+        img = await generatePanel({ prompt, seed: jobSeed, pageNumber: page.page, panelIndex: i, workDir, jobId });
+      } catch {
+        // A single unrecoverable panel (safety filter, exhausted quota) must not
+        // sink an already-paid comic — drop in a styled placeholder and continue.
+        img = await makePlaceholderPanel(workDir, page.page, i);
+      }
       panelImages.push(img);
     }
 
@@ -537,6 +544,19 @@ function renderCoverOverlay(title: string, genre: string | undefined, synopsis: 
     </svg>`;
 
   return Buffer.from(svg);
+}
+
+// Styled fallback panel for the rare case a panel can't be generated at all.
+async function makePlaceholderPanel(workDir: string, pageNumber: number, panelIndex: number): Promise<ImageGenResult> {
+  const size = 768;
+  const { d } = linePath(bangers, "?!", 300, size / 2, size / 2 + 100);
+  const svg = `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="${size}" height="${size}" fill="#1a1a2e"/>
+      <path d="${d}" fill="#ffd23f" stroke="#000000" stroke-width="14" paint-order="stroke" stroke-linejoin="round"/>
+    </svg>`;
+  const filepath = join(workDir, `panel-${pageNumber}-${panelIndex}.png`);
+  await sharp(Buffer.from(svg)).png().toFile(filepath);
+  return { path: filepath, promptChars: 0 };
 }
 
 function escapeXml(s: string): string {
