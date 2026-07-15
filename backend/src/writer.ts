@@ -39,10 +39,13 @@ Rules:
 - Panel descriptions should be visual enough for an image generator to render`;
 
 export async function generateStoryboard(input: GenerateComicInput): Promise<Storyboard> {
+  const lang = input.language || "en";
+  const langNote = lang !== "en" ? `\nWrite all dialogue in ${lang}. The scene descriptions and character names stay in English.` : "";
+
   const userPrompt = `Prompt: ${input.prompt}
 Genre: ${input.genre || "slice-of-life"}
 Pages: ${input.pages}
-Style: ${input.style || "manga"}
+Style: ${input.style || "manga"}${langNote}
 
 Create a ${input.pages}-page ${input.genre || "story"} in ${input.style || "manga"} style with a full story arc.`;
 

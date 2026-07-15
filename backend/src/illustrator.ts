@@ -11,6 +11,8 @@ export interface ImageGenResult {
 
 export interface GeneratePanelInput {
   prompt: string;
+  targetW: number;
+  targetH: number;
   pageNumber: number;
   panelIndex: number;
   workDir: string;
@@ -20,6 +22,7 @@ export interface GeneratePanelInput {
 export async function generatePanel(input: GeneratePanelInput): Promise<ImageGenResult> {
   const { prompt, pageNumber, panelIndex, workDir } = input;
 
+  // FLUX generates square, we resize later via sharp
   const response = await fetch(CF_AI_URL, {
     method: "POST",
     headers: {

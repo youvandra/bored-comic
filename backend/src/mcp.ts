@@ -19,7 +19,7 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
       title: "Generate comic",
       annotations: { readOnlyHint: true },
       description:
-        "Generate a complete comic from a natural-language prompt. Returns per-page images, a combined PDF, and structured metadata (characters, panel count, story arc) an agent can evaluate without reading the comic.",
+        "Generate a complete comic from a natural-language prompt. Returns per-page images, a combined PDF, and structured metadata (characters, panel count, story arc) an agent can evaluate without reading the comic. Supports dynamic layouts, multi-language, color or black & white.",
       inputSchema: {
         prompt: z.string().min(3).describe("What the comic should be about"),
         genre: z
@@ -35,11 +35,21 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
         style: z
           .enum(["manga", "western", "semi-realistic", "chibi"])
           .optional()
-          .describe("Art style"),
+          .describe("Art style (default: manga)"),
         aspectRatio: z
           .enum(["3:4", "9:16", "1:1"])
           .optional()
           .describe("Page aspect ratio (default: 3:4)"),
+        language: z
+          .string()
+          .min(2)
+          .max(10)
+          .optional()
+          .describe("Language for comic dialogue (e.g. 'en', 'id', 'ja', 'zh'. Default: 'en')"),
+        colorMode: z
+          .enum(["color", "bw"])
+          .optional()
+          .describe("Color or black & white (default: color)"),
       },
     },
     async (input) => {
@@ -61,7 +71,7 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
       title: "Check pricing",
       annotations: { readOnlyHint: true },
       description:
-        "Free billing introspection: returns current x402 pricing, payment address, and whether the gate is enabled. This tool is always free — never counts against any quota.",
+        "Free billing introspection: returns current x402 pricing, payment address, and whether the gate is enabled. This tool is always free.",
       inputSchema: {},
     },
     async () => {
