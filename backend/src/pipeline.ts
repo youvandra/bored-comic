@@ -147,7 +147,7 @@ async function assemblePage(params: {
       .resize(
         Math.round((PAGE_W - GUTTER * 2) * layout.w),
         Math.round((PAGE_H - GUTTER * 2) * layout.h),
-        { fit: "fill" },
+        { fit: "contain", background: "#ffffff" },
       )
       .png()
       .toBuffer();
