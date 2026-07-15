@@ -3,11 +3,16 @@ import path from "node:path";
 import { config } from "./config.js";
 
 export function resolveComicPath(jobId: string, file: string): string | null {
+  // jobId must be a plain path segment — no separators or traversal.
+  if (!/^[A-Za-z0-9_-]+$/.test(jobId)) return null;
+
   const normalized = path.normalize(file).replace(/^(\.\.(\/|\\|$))+/, "");
   if (normalized.includes("..")) return null;
 
   const full = path.join(config.comicDir, jobId, normalized);
-  if (!full.startsWith(config.comicDir)) return null;
+  // Boundary check with separator so /tmp/boredcomic-evil can't match /tmp/boredcomic.
+  const root = config.comicDir.endsWith(path.sep) ? config.comicDir : config.comicDir + path.sep;
+  if (!full.startsWith(root)) return null;
   if (!fs.existsSync(full)) return null;
 
   return full;

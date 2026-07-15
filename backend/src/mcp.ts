@@ -87,7 +87,7 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
     "generate_comic",
     {
       title: "Generate comic",
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: false, openWorldHint: true },
       description:
         "Generate a complete comic from a natural-language prompt. Returns per-page images, a combined PDF, and structured metadata (characters, panel count, story arc) an agent can evaluate without reading the comic. Supports dynamic layouts, multi-language, color or black & white.",
       inputSchema: {
