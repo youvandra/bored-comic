@@ -5,161 +5,110 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Bored Comic — AI Comic Generator</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <style>
     body { font-family: ui-sans-serif, system-ui, sans-serif; }
     .brut { border: 3px solid #000; box-shadow: 6px 6px 0 #000; }
     .brut-sm { border: 2px solid #000; box-shadow: 3px 3px 0 #000; }
-    .page-img { width: 100%; max-width: 400px; border: 2px solid #000; }
   </style>
 </head>
 <body class="bg-[#1a1a2e] text-white min-h-screen">
-  <div x-data="comicgen()" class="max-w-4xl mx-auto px-4 py-8">
+  <div class="max-w-4xl mx-auto px-4 py-8">
     <header class="mb-8">
       <h1 class="text-4xl font-black tracking-tight">
         Bored<span class="bg-fuchsia-500 px-1 brut-sm">Comic</span>
       </h1>
       <p class="mt-2 font-medium text-neutral-300">
-        An A2MCP agent on OKX.AI. Describe the comic you want, we generate it.
+        An A2MCP agent on OKX.AI. Send a prompt, genre, page count, and style;
+        receive a complete comic PDF with decision-grade metadata.
       </p>
     </header>
 
     <section class="bg-[#16213e] brut p-5 mb-6">
-      <label class="block font-bold mb-1">What comic do you want?</label>
-      <textarea x-model="prompt" placeholder="horror boarding house ghost story, 5 pages, manga style"
-        class="w-full brut-sm p-2 mb-3 bg-[#0f3460] text-white min-h-[80px]"></textarea>
+      <h2 class="text-lg font-bold mb-3">Tool: <code>generate_comic</code></h2>
+      <p class="text-neutral-300 mb-3">
+        MCP endpoint: <code class="text-fuchsas-300">POST /mcp</code>
+        — paid via x402 (no free quota).
+      </p>
 
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <div>
-          <label class="block font-bold text-sm mb-1">Genre</label>
-          <select x-model="genre" class="w-full brut-sm p-2 bg-[#0f3460] text-white">
-            <option value="horror">Horror</option>
-            <option value="romance">Romance</option>
-            <option value="action">Action</option>
-            <option value="comedy">Comedy</option>
-            <option value="manga">Manga</option>
-            <option value="fantasy">Fantasy</option>
-            <option value="sci-fi">Sci-Fi</option>
-            <option value="slice-of-life">Slice of Life</option>
-          </select>
-        </div>
-        <div>
-          <label class="block font-bold text-sm mb-1">Style</label>
-          <select x-model="style" class="w-full brut-sm p-2 bg-[#0f3460] text-white">
-            <option value="manga" selected>Manga</option>
-            <option value="western">Western</option>
-            <option value="semi-realistic">Semi-Realistic</option>
-            <option value="chibi">Chibi</option>
-          </select>
-        </div>
-        <div>
-          <label class="block font-bold text-sm mb-1">Pages</label>
-          <select x-model.number="pages" class="w-full brut-sm p-2 bg-[#0f3460] text-white">
-            <template x-for="n in 10" :key="n">
-              <option :value="n" x-text="n"></option>
-            </template>
-          </select>
-        </div>
-        <div>
-          <label class="block font-bold text-sm mb-1">Aspect</label>
-          <select x-model="aspectRatio" class="w-full brut-sm p-2 bg-[#0f3460] text-white">
-            <option value="3:4">3:4 (Standard)</option>
-        <option value="9:16">9:16 (Mobile)</option>
-            <option value="3:4">3:4 (Standard)</option>
-            <option value="1:1">1:1 (Square)</option>
-          </select>
-        </div>
-      </div>
-
-      <button @click="generate()" :disabled="loading"
-        class="bg-fuchsia-500 brut-sm px-4 py-2 font-black disabled:opacity-50">
-        <span x-show="!loading">Generate Comic</span>
-        <span x-show="loading">Generating...</span>
-      </button>
-      <p x-show="error" x-text="error" class="text-red-400 font-bold mt-3"></p>
+      <table class="w-full text-sm text-left">
+        <thead>
+          <tr class="border-b border-neutral-600">
+            <th class="py-2 pr-4">Parameter</th>
+            <th class="py-2 pr-4">Type</th>
+            <th class="py-2">Description</th>
+          </tr>
+        </thead>
+        <tbody class="text-neutral-300">
+          <tr class="border-b border-neutral-700">
+            <td class="py-2 pr-4 font-bold">prompt</td>
+            <td class="py-2 pr-4">string</td>
+            <td class="py-2">What the comic should be about</td>
+          </tr>
+          <tr class="border-b border-neutral-700">
+            <td class="py-2 pr-4 font-bold">genre</td>
+            <td class="py-2 pr-4">enum</td>
+            <td class="py-2">horror, romance, action, comedy, manga, fantasy, sci-fi, 18+</td>
+          </tr>
+          <tr class="border-b border-neutral-700">
+            <td class="py-2 pr-4 font-bold">pages</td>
+            <td class="py-2 pr-4">1-10</td>
+            <td class="py-2">Number of pages</td>
+          </tr>
+          <tr class="border-b border-neutral-700">
+            <td class="py-2 pr-4 font-bold">style</td>
+            <td class="py-2 pr-4">enum</td>
+            <td class="py-2">manga, western, semi-realistic, chibi</td>
+          </tr>
+          <tr>
+            <td class="py-2 pr-4 font-bold">aspectRatio</td>
+            <td class="py-2 pr-4">enum</td>
+            <td class="py-2">3:4, 9:16, 1:1 (default 3:4)</td>
+          </tr>
+        </tbody>
+      </table>
     </section>
 
-    <section x-show="result" class="bg-[#16213e] brut p-5 mb-6">
-      <h2 class="text-2xl font-black mb-2" x-text="result.title"></h2>
-      <p class="text-neutral-300 mb-4" x-text="result.summary"></p>
+    <section class="bg-[#16213e] brut p-5 mb-6">
+      <h2 class="text-lg font-bold mb-3">Example delivery</h2>
+      <pre class="text-xs text-neutral-300 overflow-x-auto">
+{
+  "jobId": "cg_1234",
+  "summary": "5-page horror manga 'Hantu di Kos': 18 panels, 4 characters. Generated in 32s.",
+  "title": "Hantu di Kos",
+  "pageUrls": ["/comics/cg_1234/page-1.png", "/comics/cg_1234/page-2.png"],
+  "pdfUrl": "/comics/cg_1234/comic.pdf",
+  "characters": [{ "name": "Rudi", "role": "protagonist", "appearance": "young man, 20s, curly hair, glasses" }],
+  "perPage": [{
+    "page": 1, "panels": 4,
+    "storyBeat": "Rudi arrives at the boarding house",
+    "evidence": { "model": "black-forest-labs/flux-2-pro" }
+  }],
+  "evidence": {
+    "pagesGenerated": 5, "panelsGenerated": 18,
+    "generationTimeSec": 32, "costEstimateUsd": 0.06
+  }
+}</pre>
+    </section>
 
-      <div class="flex gap-2 mb-4">
-        <a :href="result.pdfUrl" target="_blank"
-          class="bg-green-500 text-black brut-sm px-3 py-1 font-bold text-sm">
-          Download PDF
-        </a>
-      </div>
-
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <template x-for="page in result.perPage" :key="page.page">
-          <div class="bg-[#0f3460] p-3 brut-sm">
-            <p class="font-bold text-sm mb-2">
-              Page <span x-text="page.page"></span>
-              <span class="text-neutral-400">(<span x-text="page.panels"></span> panels)</span>
-            </p>
-            <img :src="page.imageUrl" :alt="'Page ' + page.page" class="page-img mb-2"
-                 @error="$el.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22500%22><rect fill=%22%23333%22 width=%22400%22 height=%22500%22/><text fill=%22%23999%22 font-size=%2216%22 x=%2220%22 y=%22250%22>Page ' + page.page + '</text></svg>'">
-            <p class="text-sm text-neutral-300" x-text="page.storyBeat"></p>
-          </div>
-        </template>
-      </div>
-
-      <div class="mt-4 p-3 bg-[#0f3460] brut-sm">
-        <p class="font-bold text-sm mb-1">Characters</p>
-        <template x-for="c in result.characters" :key="c.name">
-          <p class="text-sm text-neutral-300">
-            <span class="text-fuchsas-400 font-bold" x-text="c.name"></span>
-            — <span x-text="c.appearance"></span>
-          </p>
-        </template>
-      </div>
+    <section class="bg-[#16213e] brut p-5">
+      <h2 class="text-lg font-bold mb-3">Pricing</h2>
+      <table class="w-full text-sm text-left">
+        <thead>
+          <tr class="border-b border-neutral-600">
+            <th class="py-2 pr-4">Pages</th>
+            <th class="py-2">Price</th>
+          </tr>
+        </thead>
+        <tbody class="text-neutral-300">
+          <tr class="border-b border-neutral-700"><td class="py-2 pr-4">1-3</td><td class="py-2">0.5 USDT</td></tr>
+          <tr class="border-b border-neutral-700"><td class="py-2 pr-4">4-6</td><td class="py-2">1.0 USDT</td></tr>
+          <tr><td class="py-2 pr-4">7-10</td><td class="py-2">1.5 USDT</td></tr>
+        </tbody>
+      </table>
+      <p class="mt-3 text-sm text-neutral-400">
+        Paid via x402 v2 on X Layer (USDT0). No free quota.
+      </p>
     </section>
   </div>
-
-  <script>
-    function comicgen() {
-      return {
-        prompt: '',
-        genre: 'horror',
-        style: 'manga',
-        pages: 5,
-        aspectRatio: '3:4',
-        loading: false,
-        error: '',
-        result: null,
-
-        async generate() {
-          if (!this.prompt.trim()) { this.error = 'Tolong isi prompt dulu.'; return; }
-          this.loading = true;
-          this.error = '';
-          this.result = null;
-
-          try {
-            const res = await fetch('/api/generate', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                prompt: this.prompt,
-                genre: this.genre,
-                pages: this.pages,
-                style: this.style,
-                aspectRatio: this.aspectRatio,
-              }),
-            });
-            if (!res.ok) {
-              const err = await res.json().catch(() => ({}));
-              this.error = err.error || `HTTP ${res.status}`;
-              return;
-            }
-            this.result = await res.json();
-          } catch (e) {
-            this.error = e.message || 'Network error';
-          } finally {
-            this.loading = false;
-          }
-        },
-      };
-    }
-  </script>
 </body>
 </html>
