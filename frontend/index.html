@@ -79,6 +79,40 @@
     .tag-yellow { background: var(--yellow); color: var(--ink); }
     code { font-family: 'Comic Neue', monospace; font-weight: 700; }
     .zig { background: repeating-linear-gradient(45deg, var(--ink) 0 8px, transparent 8px 16px); }
+    /* Comic strip windows */
+    .window { border: 4px solid var(--ink); box-shadow: 8px 8px 0 var(--ink); background: #fff; position: relative; overflow: hidden; }
+    .window img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .bubble-sm {
+      position: absolute; top: 10px; left: 10px; right: 10px;
+      background: #fff; border: 3px solid var(--ink); border-radius: 16px;
+      padding: 8px 12px; font-weight: 700; font-size: 0.95rem; line-height: 1.25;
+      text-transform: uppercase;
+    }
+    .bubble-sm::after {
+      content: ""; position: absolute; left: 30px; bottom: -14px;
+      border-width: 14px 11px 0 0; border-style: solid;
+      border-color: var(--ink) transparent transparent transparent;
+    }
+    .bubble-sm::before {
+      content: ""; position: absolute; left: 32.5px; bottom: -9px;
+      border-width: 10px 8px 0 0; border-style: solid;
+      border-color: #fff transparent transparent transparent; z-index: 1;
+    }
+    .bubble-right::after { left: auto; right: 30px; border-width: 0 0 14px 11px; border-color: transparent transparent var(--ink) transparent; transform: scaleY(-1); bottom: -14px; }
+    .sfx {
+      font-family: 'Bangers', cursive; letter-spacing: 2px;
+      color: var(--yellow);
+      -webkit-text-stroke: 2px var(--ink);
+      text-shadow: 3px 3px 0 var(--ink);
+      transform: rotate(-8deg); display: inline-block;
+    }
+    .caption-tag {
+      position: absolute; left: 0; bottom: 0;
+      background: var(--cream); border-top: 3px solid var(--ink); border-right: 3px solid var(--ink);
+      font-style: italic; font-weight: 700; padding: 4px 10px; font-size: 0.85rem;
+    }
+    .tilt-l { transform: rotate(-2deg); }
+    .tilt-r { transform: rotate(2deg); }
   </style>
 </head>
 <body class="min-h-screen">
@@ -95,6 +129,46 @@
         </div>
       </div>
     </header>
+
+    <!-- STORY STRIP -->
+    <section class="mb-12">
+      <div class="text-center mb-5">
+        <h2 class="display text-4xl outline-title">HOW IT GOES DOWN</h2>
+      </div>
+      <div class="grid sm:grid-cols-3 gap-6">
+        <div class="window tilt-l" style="aspect-ratio: 3/4">
+          <img src="img/strip1.jpg" alt="An agent's user asks for a comic" />
+          <div class="bubble-sm">My user wants a comic&hellip; but I can't draw!</div>
+          <div class="caption-tag">Somewhere, an agent panics&hellip;</div>
+        </div>
+        <div class="window" style="aspect-ratio: 3/4">
+          <img src="img/strip2.jpg" alt="BoredComic races to deliver" />
+          <div class="bubble-sm bubble-right">One MCP call. I'll handle the rest!</div>
+          <div class="caption-tag">BoredComic takes the job.</div>
+          <span class="sfx text-4xl" style="position:absolute; bottom: 34px; right: 14px;">WHOOSH!</span>
+        </div>
+        <div class="window tilt-r" style="aspect-ratio: 3/4">
+          <img src="img/strip3.jpg" alt="The finished comic is delivered" />
+          <div class="bubble-sm">Cover, pages, PDF &mdash; delivered!</div>
+          <span class="sfx text-5xl" style="position:absolute; bottom: 34px; left: 14px;">TA-DA!</span>
+          <div class="caption-tag">60 seconds later.</div>
+        </div>
+      </div>
+      <p class="text-center font-bold mt-4">Panels above are real, unretouched output from one <code>generate_comic</code> call.</p>
+    </section>
+
+    <!-- GALLERY -->
+    <section class="mb-12">
+      <div class="text-center mb-5">
+        <h2 class="display text-4xl outline-title">FRESH OFF THE PRESS</h2>
+        <p class="font-bold mt-1">"Package Dash" &mdash; one call: cover + 2 pages + PDF.</p>
+      </div>
+      <div class="grid sm:grid-cols-3 gap-6 items-start">
+        <div class="window tilt-l"><img src="img/cover.jpg" alt="Generated comic cover" /></div>
+        <div class="window"><img src="img/page1.jpg" alt="Generated comic page 1" /></div>
+        <div class="window tilt-r"><img src="img/page2.jpg" alt="Generated comic page 2" /></div>
+      </div>
+    </section>
 
     <!-- HOW IT READS -->
     <section class="grid sm:grid-cols-4 gap-4 mb-12">
