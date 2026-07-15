@@ -180,22 +180,44 @@ async function assemblePage(params: {
 }
 
 async function addSpeechBubble(imageBuf: Buffer, text: string): Promise<Buffer> {
-  const maxChars = 60;
-  const truncated = text.length > maxChars ? text.slice(0, maxChars - 3) + "..." : text;
-
   const meta = await sharp(imageBuf).metadata();
   const w = meta.width || 300;
   const h = meta.height || 300;
 
-  const bubbleH = 48;
-  const bubbleY = h - bubbleH - 8;
+  const padX = 8;
+  const padY = 6;
+  const availW = w - padX * 2 - 8;
+  const fontSize = 14;
+  const lineH = 20;
+  const avgCharW = 8;
+  const maxPerLine = Math.max(10, Math.floor(availW / avgCharW));
+
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if ((current + " " + word).length > maxPerLine) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = current ? current + " " + word : word;
+    }
+  }
+  if (current) lines.push(current);
+
+  const totalLines = Math.min(lines.length, 5);
+  const bubbleH = totalLines * lineH + padY * 2;
+  const bubbleY = Math.max(0, h - bubbleH - padY);
+
+  const tspans = lines.slice(0, totalLines).map((line, i) =>
+    `<tspan x="${w / 2}" dy="${i === 0 ? 0 : lineH}" dominant-baseline="middle">${escapeXml(line)}</tspan>`
+  ).join("");
 
   const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="6" y="${bubbleY}" width="${w - 12}" height="${bubbleH}" rx="6" ry="6"
-            fill="white" fill-opacity="0.9" stroke="black" stroke-width="1.5"/>
-      <text x="${w / 2}" y="${bubbleY + bubbleH / 2 + 1}" font-family="sans-serif" font-size="15" font-weight="bold"
-            fill="black" text-anchor="middle" dominant-baseline="middle"
-            xml:space="preserve">${escapeXml(truncated)}</text>
+      <rect x="${padX}" y="${bubbleY}" width="${w - padX * 2}" height="${bubbleH}" rx="6" ry="6"
+            fill="white" fill-opacity="0.88" stroke="black" stroke-width="1.2"/>
+      <text x="${w / 2}" y="${bubbleY + padY + lineH / 2}" font-family="sans-serif" font-size="${fontSize}" font-weight="bold"
+            fill="black" text-anchor="middle">${tspans}</text>
     </svg>`;
 
   return sharp(imageBuf)
