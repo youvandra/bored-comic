@@ -17,7 +17,7 @@ const GUTTER = 14;
 const FRAME_STROKE = 4; // black ink border around each panel
 
 // Page dimensions per aspect ratio. Base width ~800px, height derived.
-function pageDims(aspectRatio?: string): { width: number; height: number } {
+export function pageDims(aspectRatio?: string): { width: number; height: number } {
   switch (aspectRatio) {
     case "9:16":
       return { width: 800, height: 1422 };
@@ -106,7 +106,8 @@ export async function runPipeline(
     pageH,
     seed: jobSeed,
   });
-  const pdfUrl = await buildPdf(pageResults, workDir, jobId, true);
+  await makeEndCard(workDir, pageW, pageH, colorMode);
+  const pdfUrl = await buildPdf(pageResults, workDir, jobId, true, storyboard.title);
 
   const elapsedSec = Math.round((Date.now() - startTime) / 1000);
 
@@ -254,7 +255,7 @@ async function assemblePage(params: {
 
 // Word-wrap into at most maxLines lines. If it overflows, the last line ends
 // with an ellipsis at a word boundary — never mid-word.
-function wrapText(text: string, maxPerLine: number, maxLines: number): string[] {
+export function wrapText(text: string, maxPerLine: number, maxLines: number): string[] {
   const words = text.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let cur = "";
@@ -318,7 +319,7 @@ function renderNarration(text: string, pageW: number, pageH: number): Buffer {
 
 // Pick a balloon type: honor the writer's tag, else infer from punctuation so
 // exclamations still pop as shouts and internal lines read as thoughts.
-function balloonType(pd: PanelDescription): DialogueType {
+export function balloonType(pd: PanelDescription): DialogueType {
   const d = (pd.dialogue || "").trim();
   // Internal monologue is a deliberate writer choice — always honor it.
   if (pd.dialogueType === "thought") return "thought";
@@ -544,6 +545,23 @@ function renderCoverOverlay(title: string, genre: string | undefined, synopsis: 
     </svg>`;
 
   return Buffer.from(svg);
+}
+
+// A "THE END" back card appended to the PDF, in the comic's page shape.
+async function makeEndCard(workDir: string, pageW: number, pageH: number, colorMode: string): Promise<void> {
+  const endSize = fitFontSize(bangers, "THE END", pageW * 0.7, Math.round(pageW / 4), 44);
+  const endD = linePath(bangers, "THE END", endSize, pageW / 2, pageH / 2 + endSize * 0.34).d;
+  const byD = linePath(bangers, "BOREDCOMIC", 28, pageW / 2, pageH * 0.66).d;
+
+  const svg = `<svg width="${pageW}" height="${pageH}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="${pageW}" height="${pageH}" fill="#1a1a2e"/>
+      <path d="${endD}" fill="#ffd23f" stroke="#000000" stroke-width="${Math.max(4, Math.round(endSize / 12))}" paint-order="stroke" stroke-linejoin="round"/>
+      <path d="${byD}" fill="#ffffff" stroke="#000000" stroke-width="1" paint-order="stroke"/>
+    </svg>`;
+
+  let pipeline = sharp(Buffer.from(svg));
+  if (colorMode === "bw") pipeline = pipeline.grayscale();
+  await pipeline.png().toFile(join(workDir, "endcard.png"));
 }
 
 // Styled fallback panel for the rare case a panel can't be generated at all.
