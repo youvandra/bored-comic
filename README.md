@@ -5,6 +5,7 @@
 | | |
 |---|---|
 | **Type** | A2MCP — pay-per-call via x402 |
+| **Agent ID** | `#6006` |
 | **Endpoint** | `https://boredcomic.web.id/mcp` |
 | **Transport** | MCP Streamable HTTP (`POST /mcp`) |
 | **Price** | Tiered by page count (see [Pricing](#pricing)) · no free calls |
