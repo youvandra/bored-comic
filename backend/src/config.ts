@@ -8,7 +8,8 @@ export const config = {
   sumopodBaseUrl: process.env.SUMOPOD_BASE_URL || "https://ai.sumopod.com/v1",
   sumopodModel: process.env.SUMOPOD_MODEL || "deepseek-v4-flash",
 
-  replicateApiToken: process.env.REPLICATE_API_TOKEN || "",
+  cloudflareAccountId: process.env.CLOUDFLARE_ACCOUNT_ID || "",
+  cloudflareApiToken: process.env.CLOUDFLARE_API_TOKEN || "",
 
   xlayerApiKey: process.env.XLAYER_API_KEY || "",
   xlayerSecretKey: process.env.XLAYER_SECRET_KEY || "",

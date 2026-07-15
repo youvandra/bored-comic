@@ -62,7 +62,7 @@ export async function runPipeline(
       storyBeat: page.storyBeat,
       imageUrl: `/comics/${jobId}/page-${page.page}.png`,
       evidence: {
-        model: "black-forest-labs/flux-2-pro",
+        model: "@cf/black-forest-labs/flux-1-schnell",
         promptChars,
         characterCount: page.panelDescriptions.reduce(
           (s, pd) => Math.max(s, pd.characters.length),
@@ -173,6 +173,6 @@ async function assemblePage(params: {
 
 export function estimateCost(pages: number, panels: number): number {
   const textCost = 0.005;
-  const imageCostPerPanel = 0.003;
+  const imageCostPerPanel = 0;
   return Math.round((textCost + imageCostPerPanel * panels) * 100) / 100;
 }

@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "./config.js";
 
-const REPLICATE_API = "https://api.replicate.com/v1/models/black-forest-labs/flux-2-pro/predictions";
+const CF_AI_URL = `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`;
 
 export interface ImageGenResult {
   path: string;
@@ -18,42 +18,31 @@ export interface GeneratePanelInput {
 }
 
 export async function generatePanel(input: GeneratePanelInput): Promise<ImageGenResult> {
-  const { prompt, pageNumber, panelIndex, workDir, jobId } = input;
+  const { prompt, pageNumber, panelIndex, workDir } = input;
 
-  const response = await fetch(REPLICATE_API, {
+  const response = await fetch(CF_AI_URL, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${config.replicateApiToken}`,
+      "Authorization": `Bearer ${config.cloudflareApiToken}`,
       "Content-Type": "application/json",
-      "Prefer": "wait",
     },
     body: JSON.stringify({
-      input: {
-        prompt,
-        aspect_ratio: "1:1",
-        num_outputs: 1,
-        output_format: "png",
-      },
+      prompt,
+      steps: 4,
     }),
   });
 
   if (!response.ok) {
     const err = await response.text().catch(() => "unknown");
-    throw new Error(`Replicate API error (${response.status}): ${err}`);
+    throw new Error(`Cloudflare AI error (${response.status}): ${err}`);
   }
 
-  const data = await response.json() as { status: string; output?: string | string[]; error?: string };
-  if (data.status !== "succeeded" || !data.output) {
-    throw new Error(`Replicate generation failed: ${data.error || data.status}`);
+  const data = await response.json() as { success: boolean; result?: { image?: string }; errors?: string[] };
+  if (!data.success || !data.result?.image) {
+    throw new Error(`Cloudflare AI generation failed: ${data.errors?.[0] || "unknown"}`);
   }
 
-  const imageUrl = typeof data.output === "string" ? data.output : data.output[0];
-  if (!imageUrl) throw new Error("Replicate returned empty output");
-
-  const imageRes = await fetch(imageUrl);
-  if (!imageRes.ok) throw new Error(`Failed to download generated image: ${imageRes.status}`);
-
-  const buffer = Buffer.from(await imageRes.arrayBuffer());
+  const buffer = Buffer.from(data.result.image, "base64");
   const filename = `panel-${pageNumber}-${panelIndex}.png`;
   const filepath = join(workDir, filename);
   await writeFile(filepath, buffer);

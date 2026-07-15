@@ -35,7 +35,7 @@ test("buildPanelPrompt handles missing character references", async () => {
 
 test("estimateCost computes reasonable values", async () => {
   const { estimateCost } = await import("./pipeline.js");
-  assert.equal(estimateCost(1, 4), 0.02);
-  assert.equal(estimateCost(5, 18), 0.06);
-  assert.equal(estimateCost(10, 40), 0.13);
+  assert.equal(estimateCost(1, 4), 0.01);
+  assert.equal(estimateCost(5, 18), 0.01);
+  assert.equal(estimateCost(10, 40), 0.01);
 });
