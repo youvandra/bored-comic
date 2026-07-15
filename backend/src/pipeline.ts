@@ -12,7 +12,8 @@ export interface PipelineHooks {
   setStatus(status: string): void;
 }
 
-const GUTTER = 8;
+const GUTTER = 14;
+const FRAME_STROKE = 4; // black ink border around each panel
 
 // Page dimensions per aspect ratio. Base width ~800px, height derived.
 function pageDims(aspectRatio?: string): { width: number; height: number } {
@@ -135,7 +136,7 @@ export function buildPanelPrompt(
     })
     .join("; ");
 
-  const qualityTags = "highly detailed, sharp focus, cinematic composition";
+  const qualityTags = "professional comic book illustration, highly detailed, sharp focus, cinematic composition, clean bold linework, strong readable silhouette, clear focal subject, dramatic lighting";
   const styleTag = style === "manga" ? "manga style, screentone textures, expressive line art, dynamic angles"
     : style === "western" ? "western comic style, bold inks, flat colors, confident lines"
     : style === "semi-realistic" ? "semi-realistic, detailed shading, textured, painterly"
@@ -145,7 +146,11 @@ export function buildPanelPrompt(
     ? ", grayscale, high contrast, ink wash, no colors"
     : ", vibrant colors, rich palette, color harmony";
 
-  return `${qualityTags}, ${styleTag}${bwTag}. ${pd.scene}. ${charRefs}.${pd.cameraAngle ? ` Camera angle: ${pd.cameraAngle}.` : " Dynamic angle."} Single comic panel, consistent character designs.`;
+  // Speech and narration are overlaid separately, so keep the art free of any
+  // baked-in lettering — FLUX otherwise renders garbled text that can't be read.
+  const noTextTag = " Absolutely no text, no speech bubbles, no captions, no letters, no watermark, no signature in the image.";
+
+  return `${qualityTags}, ${styleTag}${bwTag}. ${pd.scene}. ${charRefs}.${pd.cameraAngle ? ` Camera angle: ${pd.cameraAngle}.` : " Dynamic angle."} Single comic panel, consistent character designs.${noTextTag}`;
 }
 
 async function assemblePage(params: {
@@ -163,20 +168,18 @@ async function assemblePage(params: {
   if (panels.length === 0) return "";
 
   const composite: { input: string | Buffer; top: number; left: number }[] = [];
+  const frames: { x: number; y: number; w: number; h: number }[] = [];
 
-  // Narration box overlays the top of the page (comic style)
-  if (storyBeat) {
-    const narrationSvg = renderNarration(storyBeat, pageW);
-    composite.push({ input: narrationSvg, top: 0, left: 0 });
-  }
-
+  // Panels first (bottom layer), then frames, then narration on top.
   for (let i = 0; i < panels.length; i++) {
     const layout = layouts.find((l) => l.panelIndex === i) || layouts[i % layouts.length]!;
     const pw = Math.round((pageW - GUTTER) * layout.w - GUTTER);
     const ph = Math.round((pageH - GUTTER) * layout.h - GUTTER);
 
     const pngBuf = await sharp(panels[i].path)
-      .resize(pw, ph, { fit: "cover", position: "centre" })
+      // "attention" keeps the salient subject (faces/action) in frame instead of
+      // blindly cropping to centre.
+      .resize(pw, ph, { fit: "cover", position: sharp.strategy.attention })
       .png()
       .toBuffer();
 
@@ -187,6 +190,15 @@ async function assemblePage(params: {
     const y = Math.round(GUTTER + (pageH - GUTTER) * layout.y);
 
     composite.push({ input: buf as Buffer, top: y, left: x });
+    frames.push({ x, y, w: pw, h: ph });
+  }
+
+  // Black ink frames around every panel — the single biggest "reads like a comic" cue.
+  composite.push({ input: renderFrames(frames, pageW, pageH), top: 0, left: 0 });
+
+  // Narration caption box, drawn last so it sits above the art.
+  if (storyBeat) {
+    composite.push({ input: renderNarration(storyBeat, pageW, pageH), top: 0, left: 0 });
   }
 
   const outputPath = join(workDir, `page-${pageNumber}.png`);
@@ -208,67 +220,103 @@ async function assemblePage(params: {
   return outputPath;
 }
 
-function renderNarration(text: string, pageW: number): Buffer {
-  const parts = text.split(";").map((s) => s.trim()).filter(Boolean);
-  const primary = parts[0] || text;
-  const maxChars = 55;
-  const display = primary.length > maxChars ? primary.slice(0, maxChars - 3) + "..." : primary;
+// Word-wrap into at most maxLines lines. If it overflows, the last line ends
+// with an ellipsis at a word boundary — never mid-word.
+function wrapText(text: string, maxPerLine: number, maxLines: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let cur = "";
+  for (const word of words) {
+    const next = cur ? `${cur} ${word}` : word;
+    if (next.length > maxPerLine && cur) {
+      lines.push(cur);
+      cur = word;
+      if (lines.length >= maxLines) break;
+    } else {
+      cur = next;
+    }
+  }
+  if (lines.length < maxLines && cur) lines.push(cur);
 
-  const fontSize = 12;
-  const padX = 20;
-  const boxH = 30;
+  const usedWords = lines.join(" ").split(/\s+/).filter(Boolean).length;
+  if (usedWords < words.length && lines.length > 0) {
+    lines[lines.length - 1] = lines[lines.length - 1].replace(/[.,;:!?]*$/, "") + "…";
+  }
+  return lines;
+}
 
-  const svg = `<svg width="${pageW}" height="${boxH + 10}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="${padX}" y="4" width="${pageW - padX * 2}" height="${boxH}" rx="3" ry="3"
-            fill="#1a1a1a" fill-opacity="0.9" stroke="#444" stroke-width="0.5"/>
-      <polygon points="${pageW / 2 - 6},${boxH + 4} ${pageW / 2 + 6},${boxH + 4} ${pageW / 2},${boxH + 10}"
-               fill="#1a1a1a" fill-opacity="0.9"/>
-      <text x="${pageW / 2}" y="${boxH / 2 + 5}" font-family="serif" font-size="${fontSize}" font-weight="bold" font-style="italic"
-            fill="#ddd" text-anchor="middle" dominant-baseline="middle">${escapeXml(display)}</text>
+// Black ink frames around every panel.
+function renderFrames(frames: { x: number; y: number; w: number; h: number }[], pageW: number, pageH: number): Buffer {
+  const rects = frames
+    .map((f) => `<rect x="${f.x}" y="${f.y}" width="${f.w}" height="${f.h}" fill="none" stroke="#000000" stroke-width="${FRAME_STROKE}"/>`)
+    .join("");
+  return Buffer.from(`<svg width="${pageW}" height="${pageH}" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`);
+}
+
+// Classic cream narration caption box, top-left corner, wrapped (no truncation).
+function renderNarration(text: string, pageW: number, pageH: number): Buffer {
+  const primary = text.split(";").map((s) => s.trim()).filter(Boolean)[0] || text;
+  const boxW = Math.round(pageW * 0.62);
+  const padX = 14;
+  const padY = 10;
+  const fontSize = 15;
+  const lineH = 21;
+  const maxPerLine = Math.max(12, Math.floor((boxW - padX * 2) / (fontSize * 0.5)));
+  const lines = wrapText(primary, maxPerLine, 3);
+  const boxH = lines.length * lineH + padY * 2;
+  const x = GUTTER;
+  const y = GUTTER;
+
+  const tspans = lines
+    .map((l, i) => `<tspan x="${x + padX}" dy="${i === 0 ? 0 : lineH}">${escapeXml(l)}</tspan>`)
+    .join("");
+
+  const svg = `<svg width="${pageW}" height="${pageH}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="${x}" y="${y}" width="${boxW}" height="${boxH}" rx="2" ry="2"
+            fill="#f5e9c8" stroke="#000000" stroke-width="2.5"/>
+      <text x="${x + padX}" y="${y + padY + fontSize - 3}" font-family="Georgia, 'Times New Roman', serif"
+            font-size="${fontSize}" font-style="italic" fill="#1a1a1a">${tspans}</text>
     </svg>`;
 
   return Buffer.from(svg);
 }
 
+// Opaque comic speech balloon near the top of the panel, all-caps lettering
+// (comic convention), with a tail pointing down toward the speaker.
 async function addSpeechBubble(imageBuf: Buffer, text: string): Promise<Buffer> {
   const meta = await sharp(imageBuf).metadata();
   const w = meta.width || 300;
   const h = meta.height || 300;
 
-  const padX = 8;
-  const padY = 6;
-  const availW = w - padX * 2 - 8;
-  const fontSize = 14;
-  const lineH = 20;
-  const avgCharW = 8;
-  const maxPerLine = Math.max(10, Math.floor(availW / avgCharW));
+  const content = text.toUpperCase();
+  const fontSize = Math.max(13, Math.min(20, Math.round(w / 22)));
+  const lineH = Math.round(fontSize * 1.35);
+  const avgCharW = fontSize * 0.62;
+  const maxPerLine = Math.max(8, Math.floor((w * 0.82) / avgCharW));
+  const maxLines = h < 200 ? 2 : h < 340 ? 3 : 4;
+  const lines = wrapText(content, maxPerLine, maxLines);
 
-  const words = text.split(" ");
-  const lines: string[] = [];
-  let current = "";
-  for (const word of words) {
-    if ((current + " " + word).length > maxPerLine) {
-      lines.push(current);
-      current = word;
-    } else {
-      current = current ? current + " " + word : word;
-    }
-  }
-  if (current) lines.push(current);
+  const longest = Math.max(...lines.map((l) => l.length));
+  const bubbleW = Math.min(w - 16, Math.round(longest * avgCharW + fontSize * 1.8));
+  const bubbleH = lines.length * lineH + Math.round(fontSize * 1.1);
+  const bx = Math.round((w - bubbleW) / 2);
+  const by = 10;
+  const cx = w / 2;
+  const tailBase = by + bubbleH;
 
-  const totalLines = Math.min(lines.length, 5);
-  const bubbleH = totalLines * lineH + padY * 2;
-  const bubbleY = Math.max(0, h - bubbleH - padY);
+  const textStartY = by + Math.round((bubbleH - (lines.length - 1) * lineH) / 2) + Math.round(fontSize * 0.35);
+  const tspans = lines
+    .map((l, i) => `<tspan x="${cx}" dy="${i === 0 ? 0 : lineH}">${escapeXml(l)}</tspan>`)
+    .join("");
 
-  const tspans = lines.slice(0, totalLines).map((line, i) =>
-    `<tspan x="${w / 2}" dy="${i === 0 ? 0 : lineH}" dominant-baseline="middle">${escapeXml(line)}</tspan>`
-  ).join("");
-
+  // Tail first (behind), balloon on top so the balloon border hides the seam.
   const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="${padX}" y="${bubbleY}" width="${w - padX * 2}" height="${bubbleH}" rx="6" ry="6"
-            fill="white" fill-opacity="0.88" stroke="black" stroke-width="1.2"/>
-      <text x="${w / 2}" y="${bubbleY + padY + lineH / 2}" font-family="sans-serif" font-size="${fontSize}" font-weight="bold"
-            fill="black" text-anchor="middle">${tspans}</text>
+      <polygon points="${cx - 11},${tailBase - 6} ${cx + 11},${tailBase - 6} ${cx - 2},${tailBase + 16}"
+               fill="#ffffff" stroke="#000000" stroke-width="2.5" stroke-linejoin="round"/>
+      <rect x="${bx}" y="${by}" width="${bubbleW}" height="${bubbleH}" rx="${Math.round(bubbleH / 2.6)}" ry="${Math.round(bubbleH / 2.6)}"
+            fill="#ffffff" stroke="#000000" stroke-width="2.5"/>
+      <text x="${cx}" y="${textStartY}" font-family="'Arial Black', 'Helvetica Neue', Helvetica, sans-serif"
+            font-size="${fontSize}" font-weight="900" fill="#000000" text-anchor="middle">${tspans}</text>
     </svg>`;
 
   return sharp(imageBuf)
