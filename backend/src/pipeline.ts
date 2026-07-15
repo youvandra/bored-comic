@@ -12,9 +12,20 @@ export interface PipelineHooks {
   setStatus(status: string): void;
 }
 
-const PAGE_W = 800;
-const PAGE_H = 1067;
 const GUTTER = 8;
+
+// Page dimensions per aspect ratio. Base width ~800px, height derived.
+function pageDims(aspectRatio?: string): { width: number; height: number } {
+  switch (aspectRatio) {
+    case "9:16":
+      return { width: 800, height: 1422 };
+    case "1:1":
+      return { width: 900, height: 900 };
+    case "3:4":
+    default:
+      return { width: 800, height: 1067 };
+  }
+}
 
 export async function runPipeline(
   jobId: string,
@@ -26,12 +37,14 @@ export async function runPipeline(
   const startTime = Date.now();
   const lang = input.language || "en";
   const colorMode = input.colorMode || "color";
+  const { width: pageW, height: pageH } = pageDims(input.aspectRatio);
+  // One seed per job so panels share a coherent visual baseline.
+  const jobSeed = Math.floor(Math.random() * 1_000_000_000);
 
   hooks.setStatus("writing");
   const storyboard = await generateStoryboard(input);
 
   hooks.setStatus("illustrating");
-  const totalPanels = storyboard.pages.reduce((s, p) => s + p.panels, 0);
   const pageLayouts: PanelLayout[][] = [];
 
   const pageTasks = storyboard.pages.map(async (page, pageIdx) => {
@@ -44,20 +57,19 @@ export async function runPipeline(
     for (let i = 0; i < page.panelDescriptions.length; i++) {
       if (i > 0) await new Promise((r) => setTimeout(r, 1500));
       const pd = page.panelDescriptions[i]!;
-      const layout = layouts.find((l) => l.panelIndex === i) || layouts[i % layouts.length]!;
       const prompt = buildPanelPrompt(pd, storyboard.characters, input.style || "manga", colorMode);
-      const pw = Math.round((PAGE_W - GUTTER) * layout.w - GUTTER);
-      const ph = Math.round((PAGE_H - GUTTER) * layout.h - GUTTER);
 
-      const img = await generatePanel({ prompt, targetW: pw, targetH: ph, pageNumber: page.page, panelIndex: i, workDir, jobId });
+      const img = await generatePanel({ prompt, seed: jobSeed, pageNumber: page.page, panelIndex: i, workDir, jobId });
       panelImages.push(img);
     }
 
-    await assemblePage({ panels: panelImages, layouts, pageNumber: page.page, workDir, dialogue: page.panelDescriptions.map((pd) => pd.dialogue), storyBeat: page.storyBeat, colorMode });
+    await assemblePage({ panels: panelImages, layouts, pageNumber: page.page, workDir, dialogue: page.panelDescriptions.map((pd) => pd.dialogue), storyBeat: page.storyBeat, colorMode, pageW, pageH });
 
+    // Report the panels actually rendered, not the LLM's declared count.
+    const renderedPanels = page.panelDescriptions.length;
     return {
       page: page.page,
-      panels: page.panels,
+      panels: renderedPanels,
       storyBeat: page.storyBeat,
       imageUrl: `/comics/${jobId}/page-${page.page}.png`,
       evidence: {
@@ -77,13 +89,17 @@ export async function runPipeline(
 
   const elapsedSec = Math.round((Date.now() - startTime) / 1000);
 
-  const summary = `${input.pages}-page ${input.genre || "story"} ${input.style || "manga"} '${storyboard.title}': ${totalPanels} panels, ${storyboard.characters.length} characters. Generated in ${elapsedSec}s. Language: ${lang}. Color mode: ${colorMode}.`;
+  // Honest counts: derived from what was actually generated.
+  const actualPages = pageResults.length;
+  const totalPanels = pageResults.reduce((s, p) => s + p.panels, 0);
+
+  const summary = `${actualPages}-page ${input.genre || "story"} ${input.style || "manga"} '${storyboard.title}': ${totalPanels} panels, ${storyboard.characters.length} characters. Generated in ${elapsedSec}s. Language: ${lang}. Color mode: ${colorMode}.`;
 
   return {
     jobId,
     summary,
     title: storyboard.title,
-    pages: input.pages,
+    pages: actualPages,
     totalPanels,
     style: input.style || "manga",
     genre: input.genre || "slice-of-life",
@@ -95,10 +111,10 @@ export async function runPipeline(
     perPage: pageResults,
     evidence: {
       model: "@cf/black-forest-labs/flux-1-schnell",
-      pagesGenerated: input.pages,
+      pagesGenerated: actualPages,
       panelsGenerated: totalPanels,
       generationTimeSec: elapsedSec,
-      costEstimateUsd: estimateCost(input.pages, totalPanels),
+      costEstimateUsd: estimateCost(actualPages, totalPanels),
       language: lang,
       colorMode,
       caveat: "Comic is AI-generated. Story coherence and visual consistency are heuristic, not guaranteed.",
@@ -140,22 +156,24 @@ async function assemblePage(params: {
   dialogue: (string | undefined)[];
   storyBeat: string;
   colorMode: string;
+  pageW: number;
+  pageH: number;
 }): Promise<string> {
-  const { panels, layouts, pageNumber, workDir, dialogue, storyBeat, colorMode } = params;
+  const { panels, layouts, pageNumber, workDir, dialogue, storyBeat, colorMode, pageW, pageH } = params;
   if (panels.length === 0) return "";
 
   const composite: { input: string | Buffer; top: number; left: number }[] = [];
 
   // Narration box overlays the top of the page (comic style)
   if (storyBeat) {
-    const narrationSvg = renderNarration(storyBeat, PAGE_W);
+    const narrationSvg = renderNarration(storyBeat, pageW);
     composite.push({ input: narrationSvg, top: 0, left: 0 });
   }
 
   for (let i = 0; i < panels.length; i++) {
     const layout = layouts.find((l) => l.panelIndex === i) || layouts[i % layouts.length]!;
-    const pw = Math.round((PAGE_W - GUTTER) * layout.w - GUTTER);
-    const ph = Math.round((PAGE_H - GUTTER) * layout.h - GUTTER);
+    const pw = Math.round((pageW - GUTTER) * layout.w - GUTTER);
+    const ph = Math.round((pageH - GUTTER) * layout.h - GUTTER);
 
     const pngBuf = await sharp(panels[i].path)
       .resize(pw, ph, { fit: "cover", position: "centre" })
@@ -165,8 +183,8 @@ async function assemblePage(params: {
     const diag = dialogue[i];
     const buf = diag ? await addSpeechBubble(pngBuf, diag) : pngBuf;
 
-    const x = Math.round(GUTTER + (PAGE_W - GUTTER) * layout.x);
-    const y = Math.round(GUTTER + (PAGE_H - GUTTER) * layout.y);
+    const x = Math.round(GUTTER + (pageW - GUTTER) * layout.x);
+    const y = Math.round(GUTTER + (pageH - GUTTER) * layout.y);
 
     composite.push({ input: buf as Buffer, top: y, left: x });
   }
@@ -174,8 +192,8 @@ async function assemblePage(params: {
   const outputPath = join(workDir, `page-${pageNumber}.png`);
   let pipeline = sharp({
     create: {
-      width: PAGE_W,
-      height: PAGE_H,
+      width: pageW,
+      height: pageH,
       channels: 3,
       background: "#ffffff",
     },
