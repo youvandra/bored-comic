@@ -17,7 +17,6 @@
     "@okxweb3/x402-express": "^0.1.1",
     "dotenv": "^17.4.2",
     "express": "^5.1.0",
-    "nanoid": "^5.0.9",
     "openai": "^4.77.0",
     "pdf-lib": "^1.17.1",
     "sharp": "^0.35.3",
@@ -26,7 +25,6 @@
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
-    "@types/sharp": "^0.31.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }
