@@ -41,11 +41,11 @@ As structured data the agent can compose — not a web app it has to navigate.
   "characters": [{ "name": "Rudi", "appearance": "young man, 20s, curly hair, glasses" }],
   "perPage": [{
     "page": 1, "panels": 4, "storyBeat": "...",
-    "evidence": { "model": "black-forest-labs/flux-2-pro", "promptChars": 512 }
+    "evidence": { "model": "@cf/black-forest-labs/flux-1-schnell", "promptChars": 512 }
   }],
   "evidence": {
     "pagesGenerated": 5, "panelsGenerated": 18,
-    "generationTimeSec": 32, "costEstimateUsd": 0.15,
+    "generationTimeSec": 32, "costEstimateUsd": 0.02,
     "caveat": "Comic is AI-generated. Story coherence and visual consistency are heuristic, not guaranteed."
   }
 }
