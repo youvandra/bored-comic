@@ -6,3 +6,7 @@ backend/data/
 backend/slides/
 backend/comics/
 .DS_Store
+PLAN.md
+TASKS.md
+docs/
+

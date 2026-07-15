@@ -10,7 +10,11 @@ export const config = {
 
   replicateApiToken: process.env.REPLICATE_API_TOKEN || "",
 
-  comicDir: process.env.COMIC_DIR || "/tmp/comicgen",
+  xlayerApiKey: process.env.XLAYER_API_KEY || "",
+  xlayerSecretKey: process.env.XLAYER_SECRET_KEY || "",
+  xlayerPassphrase: process.env.XLAYER_PASSPHRASE || "",
+
+  comicDir: process.env.COMIC_DIR || "/tmp/boredcomic",
   comicTtlMs: Number(process.env.COMIC_TTL_MS || "86400000"),
 
   x402Mode: (process.env.X402_MODE || "off") as "off" | "demo" | "on",
