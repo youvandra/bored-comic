@@ -137,10 +137,13 @@ const LAYOUTS: Record<number, PanelLayout[][]> = {
   ],
 };
 
-export function pickLayout(panelCount: number): PanelLayout[] {
+export function pickLayout(
+  panelCount: number,
+  prevLayout: PanelLayout[] | null,
+  firstCameraAngle?: string,
+): PanelLayout[] {
   const opts = LAYOUTS[panelCount];
   if (!opts || opts.length === 0) {
-    // Fallback: evenly spaced grid
     return Array.from({ length: panelCount }, (_, i) => ({
       panelIndex: i,
       x: (i % 2) * 0.5,
@@ -149,6 +152,34 @@ export function pickLayout(panelCount: number): PanelLayout[] {
       h: 0.5,
     }));
   }
-  const idx = Math.floor(Math.random() * opts.length);
-  return opts[idx]!;
+
+  // Always avoid same layout as previous page
+  const prevKey = prevLayout ? prevLayout.map((l) => `${l.x},${l.y},${l.w},${l.h}`).join("|") : "";
+
+  // Score each layout by suitability
+  const scored = opts.map((layout, idx) => {
+    let score = Math.random();
+    const key = layout.map((l) => `${l.x},${l.y},${l.w},${l.h}`).join("|");
+
+    // Penalize same as previous page
+    if (key === prevKey) score -= 10;
+
+    // First panel gets more space for establishing shots
+    const firstPanelW = layout[0].w * layout[0].h;
+    if (firstCameraAngle) {
+      const wideAngles = ["wide", "establishing", "long", "birds eye", "aerial"];
+      const isWide = wideAngles.some((a) => firstCameraAngle.toLowerCase().includes(a));
+      if (isWide && firstPanelW > 0.3) score += 3;
+      if (!isWide && firstPanelW > 0.4) score -= 1;
+    }
+
+    // Prefer variety: layouts with different shapes
+    const uniqueShapes = new Set(layout.map((l) => `${Math.round(l.w * 10)},${Math.round(l.h * 10)}`)).size;
+    score += uniqueShapes * 0.5;
+
+    return { layout, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0].layout;
 }

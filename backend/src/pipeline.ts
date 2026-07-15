@@ -32,9 +32,13 @@ export async function runPipeline(
 
   hooks.setStatus("illustrating");
   const totalPanels = storyboard.pages.reduce((s, p) => s + p.panels, 0);
+  const pageLayouts: PanelLayout[][] = [];
 
-  const pageTasks = storyboard.pages.map(async (page) => {
-    const layouts = pickLayout(page.panelDescriptions.length);
+  const pageTasks = storyboard.pages.map(async (page, pageIdx) => {
+    const firstCam = page.panelDescriptions[0]?.cameraAngle;
+    const prevLayoutObj = pageLayouts[pageIdx - 1] ?? null;
+    const layouts = pickLayout(page.panelDescriptions.length, prevLayoutObj, firstCam);
+    pageLayouts.push(layouts);
     const panelImages: ImageGenResult[] = [];
 
     for (let i = 0; i < page.panelDescriptions.length; i++) {
@@ -189,19 +193,20 @@ async function assemblePage(params: {
 function renderNarration(text: string, pageW: number): Buffer {
   const parts = text.split(";").map((s) => s.trim()).filter(Boolean);
   const primary = parts[0] || text;
-  const maxChars = 50;
+  const maxChars = 55;
   const display = primary.length > maxChars ? primary.slice(0, maxChars - 3) + "..." : primary;
 
-  const fontSize = 13;
-  const padX = 16;
-  const padY = 6;
-  const boxH = 28;
+  const fontSize = 12;
+  const padX = 20;
+  const boxH = 30;
 
-  const svg = `<svg width="${pageW}" height="${boxH + padY * 2}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="${padX}" y="0" width="${pageW - padX * 2}" height="${boxH}" rx="4" ry="4"
-            fill="#222" fill-opacity="0.85"/>
-      <text x="${pageW / 2}" y="${boxH / 2 + 1}" font-family="sans-serif" font-size="${fontSize}" font-weight="bold" font-style="italic"
-            fill="#eee" text-anchor="middle" dominant-baseline="middle">${escapeXml(display)}</text>
+  const svg = `<svg width="${pageW}" height="${boxH + 10}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="${padX}" y="4" width="${pageW - padX * 2}" height="${boxH}" rx="3" ry="3"
+            fill="#1a1a1a" fill-opacity="0.9" stroke="#444" stroke-width="0.5"/>
+      <polygon points="${pageW / 2 - 6},${boxH + 4} ${pageW / 2 + 6},${boxH + 4} ${pageW / 2},${boxH + 10}"
+               fill="#1a1a1a" fill-opacity="0.9"/>
+      <text x="${pageW / 2}" y="${boxH / 2 + 5}" font-family="serif" font-size="${fontSize}" font-weight="bold" font-style="italic"
+            fill="#ddd" text-anchor="middle" dominant-baseline="middle">${escapeXml(display)}</text>
     </svg>`;
 
   return Buffer.from(svg);

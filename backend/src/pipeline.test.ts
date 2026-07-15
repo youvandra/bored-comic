@@ -65,7 +65,7 @@ test("pickLayout positions are within bounds", async () => {
   const { pickLayout } = await import("./types.js");
 
   for (let n = 1; n <= 4; n++) {
-    const layout = pickLayout(n);
+    const layout = pickLayout(n, null, "wide shot");
     for (const p of layout) {
       assert.ok(p.x >= 0 && p.x < 1, `x out of bounds for ${n} panels`);
       assert.ok(p.y >= 0 && p.y < 1, `y out of bounds for ${n} panels`);
@@ -75,16 +75,14 @@ test("pickLayout positions are within bounds", async () => {
   }
 });
 
-test("pickLayout returns different layouts for same count", async () => {
+test("pickLayout avoids repeating the same layout", async () => {
   const { pickLayout } = await import("./types.js");
 
-  // 3-panel has 4 templates, calling 100 times should yield at least 2 different layouts
-  const layouts = new Set<string>();
-  for (let i = 0; i < 100; i++) {
-    const l = pickLayout(3);
-    layouts.add(l.map((p) => `${p.x},${p.y},${p.w},${p.h}`).join("|"));
-  }
-  assert.ok(layouts.size >= 2, "Should produce multiple layout variants");
+  const first = pickLayout(3, null, "close-up");
+  const second = pickLayout(3, first, "close-up");
+  const k1 = first.map((l) => `${l.x},${l.y},${l.w},${l.h}`).join("|");
+  const k2 = second.map((l) => `${l.x},${l.y},${l.w},${l.h}`).join("|");
+  assert.notEqual(k1, k2, "Consecutive pages should get different layouts");
 });
 
 test("estimateCost scales with panel count", async () => {
