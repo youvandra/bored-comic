@@ -104,7 +104,7 @@ export async function runPipeline(
   };
 }
 
-function buildPanelPrompt(
+export function buildPanelPrompt(
   pd: import("./types.js").PanelDescription,
   characters: import("./types.js").Character[],
   style: string,
@@ -136,8 +136,16 @@ async function assemblePage(params: {
   const panelW = 400;
   const panelH = 500;
 
-  const composite = panels.map((p, i) => ({
-    input: p.path,
+  // Resize each panel to fit grid cell before compositing
+  const resized = await Promise.all(
+    panels.map(async (p) => {
+      const buf = await sharp(p.path).resize(panelW, panelH, { fit: "cover" }).png().toBuffer();
+      return { buffer: buf, path: p.path };
+    }),
+  );
+
+  const composite = resized.map((p, i) => ({
+    input: p.buffer,
     top: Math.floor(i / cols) * (panelH + gap),
     left: (i % cols) * (panelW + gap),
   }));
@@ -161,7 +169,7 @@ async function assemblePage(params: {
   return outputPath;
 }
 
-function estimateCost(pages: number, panels: number): number {
+export function estimateCost(pages: number, panels: number): number {
   const textCost = 0.005;
   const imageCostPerPanel = 0.003;
   return Math.round((textCost + imageCostPerPanel * panels) * 100) / 100;

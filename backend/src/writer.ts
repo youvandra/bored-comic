@@ -59,15 +59,19 @@ Create a ${input.pages}-page ${input.genre || "story"} in ${input.style || "mang
   const text = response.choices[0]?.message?.content;
   if (!text) throw new Error("Writer returned empty response");
 
-  const parsed = JSON.parse(text) as Storyboard;
+  return parseStoryboard(text, input.pages);
+}
+
+export function parseStoryboard(json: string, expectedPages: number): Storyboard {
+  const parsed = JSON.parse(json) as Storyboard;
 
   if (!parsed.title || !parsed.pages || parsed.pages.length === 0) {
     throw new Error("Writer returned invalid storyboard: missing title or pages");
   }
 
-  if (parsed.pages.length !== input.pages) {
-    parsed.pages = parsed.pages.slice(0, input.pages);
-    while (parsed.pages.length < input.pages) {
+  if (parsed.pages.length !== expectedPages) {
+    parsed.pages = parsed.pages.slice(0, expectedPages);
+    while (parsed.pages.length < expectedPages) {
       const last = parsed.pages[parsed.pages.length - 1];
       if (last) {
         parsed.pages.push({
