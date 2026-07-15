@@ -7,54 +7,54 @@ const client = new OpenAI({
   apiKey: config.sumopodApiKey,
 });
 
-const WRITER_PROMPT = `You are a professional comic writer and director. Your job is to create a detailed, visually compelling storyboard that an AI image generator can turn into stunning comic panels.
+const WRITER_PROMPT = `You are a professional comic writer and director. Create a compelling, visually rich storyboard.
 
-STRUCTURE:
-- First page: establish the setting, characters, and hook
-- Middle pages: build tension, conflict, or comedy beats
-- Last page: deliver a satisfying payoff, punchline, or cliffhanger
+STORY STRUCTURE:
+- Page 1: establish the world, characters, and hook. Include a narrative caption like "The misty mountains of the East..." or "In a quiet village, far from the capital..."
+- Middle pages: build tension, conflict, or comedy through action and dialogue
+- Final page: deliver a satisfying payoff, plot twist, or emotional punch
 
-For each page, break it into 2-4 panels. VARY the panel composition:
-- Mix close-ups (emotion, reaction) with wide shots (setting, action)
-- Use dramatic camera angles for impact (low angle = power, high angle = vulnerability)
-- Each panel must advance the story or reveal character
+NARRATION RULES:
+- Each page MUST have a storyBeat that reads like a comic narration caption
+- Good: "The lone warrior stepped onto the ancient bridge, unaware of the darkness that awaited..."
+- Bad: "Samurai fights demon"
+- Use narration to set the scene, pass time, or add dramatic weight
 
-Character descriptions MUST include: age, body type, hair (color, style), eyes, distinctive clothing, and any unique features. Be SPECIFIC — "young woman with short purple hair, goggles on forehead, leather jacket" not just "girl".
+PANEL COMPOSITION (vary across pages):
+- Establish: wide shot (setting, scale)
+- Reaction: close-up (emotion, detail)
+- Action: dynamic angle (impact, movement)
+- Dialogue: medium shot (characters interacting)
 
-DIALOGUE RULES:
-- Keep dialogue short and punchy — comics are visual
-- Each line under 40 characters
-- Show, don't tell: prefer a visual reaction over exposition
+CHARACTER DESIGN: Include age, body type, hair (color + style), eyes, distinctive clothing, and unique features. Be VISUAL — "young woman, short purple hair, goggles on forehead, worn leather jacket, cybernetic arm" not just "girl".
 
-Output ONLY valid JSON matching this schema:
+DIALOGUE: Keep under 30 characters per line. Punchy. Comics are visual — show emotion through expression, not exposition.
+
+Output ONLY valid JSON:
 {
-  "title": "string (short, catchy)",
-  "synopsis": "string (one sentence)",
-  "characters": [{ "name": "string", "role": "string", "appearance": "string (detailed: age/hair/clothes/distinctive)" }],
+  "title": "short, catchy",
+  "synopsis": "one sentence hook",
+  "characters": [{ "name", "role", "appearance": "DETAILED visual description" }],
   "pages": [{
     "page": number,
-    "panels": number,
-    "storyBeat": "string (what happens dramatically)",
+    "panels": number (2-4),
+    "storyBeat": "NARRATION caption for this page, like a comic narrator's voice",
     "panelDescriptions": [{
       "panel": number,
-      "scene": "string (VISUAL description — lighting, setting, character poses, expressions)",
-      "characters": ["string (character names present)"],
-      "dialogue": "string (optional, short, under 40 chars)",
-      "cameraAngle": "string (optional: close-up, wide shot, low angle, over-shoulder, etc)"
+      "scene": "VISUAL — lighting, setting, character poses, expressions, mood",
+      "characters": ["names"],
+      "dialogue": "short, under 30 chars (optional)",
+      "cameraAngle": "close-up | wide shot | low angle | over-shoulder (optional)"
     }]
   }]
 }
 
-RULES:
-- 2-4 panels per page
-- VARY panel types across pages (don't use the same layout for every page)
-- Character descriptions must be 100% consistent across all pages
-- The story must have a clear beginning, middle, and end within the page count
-- Panel scenes must be VISUAL — describe lighting, mood, character positioning
-- For comedy: exaggerated expressions, physical humor
-- For horror: shadows, dramatic lighting, tense close-ups
-- For action: dynamic poses, speed lines implied, impact
-- For romance: soft lighting, close character framing`;
+GENRE GUIDES:
+- Horror: shadows, dramatic lighting, tense close-ups, dread
+- Comedy: exaggerated expressions, physical humor, wide reactions
+- Action: dynamic poses, impact frames, speed, intensity
+- Romance: soft lighting, intimate framing, lingering looks
+- Manga: expressive eyes, speed lines, dramatic angles, screentone textures`;
 
 export async function generateStoryboard(input: GenerateComicInput): Promise<Storyboard> {
   const lang = input.language || "en";

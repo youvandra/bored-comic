@@ -46,9 +46,10 @@ test("buildPanelPrompt includes dialogue and camera angle", async () => {
     "color",
   );
 
-  assert.ok(prompt.includes('Speaking: "It\'s over!"'));
   assert.ok(prompt.includes("Camera angle: low angle"));
   assert.ok(prompt.includes("western comic style"));
+  // Dialogue is no longer injected into image prompt — it's rendered as speech bubble overlay
+  assert.ok(!prompt.includes("It's over"));
 });
 
 test("pickLayout returns correct number of panels", async () => {

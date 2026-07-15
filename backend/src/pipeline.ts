@@ -49,7 +49,7 @@ export async function runPipeline(
       panelImages.push(img);
     }
 
-    await assemblePage({ panels: panelImages, layouts, pageNumber: page.page, workDir, dialogue: page.panelDescriptions.map((pd) => pd.dialogue), colorMode });
+    await assemblePage({ panels: panelImages, layouts, pageNumber: page.page, workDir, dialogue: page.panelDescriptions.map((pd) => pd.dialogue), storyBeat: page.storyBeat, colorMode });
 
     return {
       page: page.page,
@@ -125,7 +125,7 @@ export function buildPanelPrompt(
     ? ", grayscale, high contrast, ink wash, no colors"
     : ", vibrant colors, rich palette, color harmony";
 
-  return `${qualityTags}, ${styleTag}${bwTag}. ${pd.scene}. ${charRefs}.${pd.dialogue ? ` Speaking: "${pd.dialogue}"` : ""}${pd.cameraAngle ? ` Camera angle: ${pd.cameraAngle}.` : " Dynamic angle."} Single comic panel, consistent character designs.`;
+  return `${qualityTags}, ${styleTag}${bwTag}. ${pd.scene}. ${charRefs}.${pd.cameraAngle ? ` Camera angle: ${pd.cameraAngle}.` : " Dynamic angle."} Single comic panel, consistent character designs.`;
 }
 
 async function assemblePage(params: {
@@ -134,12 +134,19 @@ async function assemblePage(params: {
   pageNumber: number;
   workDir: string;
   dialogue: (string | undefined)[];
+  storyBeat: string;
   colorMode: string;
 }): Promise<string> {
-  const { panels, layouts, pageNumber, workDir, dialogue, colorMode } = params;
+  const { panels, layouts, pageNumber, workDir, dialogue, storyBeat, colorMode } = params;
   if (panels.length === 0) return "";
 
   const composite: { input: string | Buffer; top: number; left: number }[] = [];
+
+  // Narration box overlays the top of the page (comic style)
+  if (storyBeat) {
+    const narrationSvg = renderNarration(storyBeat, PAGE_W);
+    composite.push({ input: narrationSvg, top: 0, left: 0 });
+  }
 
   for (let i = 0; i < panels.length; i++) {
     const layout = layouts.find((l) => l.panelIndex === i) || layouts[i % layouts.length]!;
@@ -177,6 +184,27 @@ async function assemblePage(params: {
 
   await pipeline.png().toFile(outputPath);
   return outputPath;
+}
+
+function renderNarration(text: string, pageW: number): Buffer {
+  const parts = text.split(";").map((s) => s.trim()).filter(Boolean);
+  const primary = parts[0] || text;
+  const maxChars = 50;
+  const display = primary.length > maxChars ? primary.slice(0, maxChars - 3) + "..." : primary;
+
+  const fontSize = 13;
+  const padX = 16;
+  const padY = 6;
+  const boxH = 28;
+
+  const svg = `<svg width="${pageW}" height="${boxH + padY * 2}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="${padX}" y="0" width="${pageW - padX * 2}" height="${boxH}" rx="4" ry="4"
+            fill="#222" fill-opacity="0.85"/>
+      <text x="${pageW / 2}" y="${boxH / 2 + 1}" font-family="sans-serif" font-size="${fontSize}" font-weight="bold" font-style="italic"
+            fill="#eee" text-anchor="middle" dominant-baseline="middle">${escapeXml(display)}</text>
+    </svg>`;
+
+  return Buffer.from(svg);
 }
 
 async function addSpeechBubble(imageBuf: Buffer, text: string): Promise<Buffer> {
