@@ -105,7 +105,34 @@ export function x402Gate(req: Request, res: Response, next: NextFunction): void 
 
   // No free quota — price scales with requested page count.
   const pages = body?.params?.arguments?.pages ?? 1;
-  void paidFor(priceForPages(pages))(req, res, next);
+  const price = priceForPages(pages);
+
+  // If the request carries a payment proof, let the SDK verify it
+  if (req.headers["x402-authorization"] || req.headers["x402-payment"] || req.headers["x-pay-signature"]) {
+    void paidFor(price)(req, res, next);
+    return;
+  }
+
+  // No payment proof — return a proper x402 v2 challenge with PAYMENT-REQUIRED header
+  const amount = Math.round(Number(price) * 1000000).toString();
+  const challenge = {
+    x402Version: 2,
+    resource: {
+      url: `${req.protocol}://${req.get("host")}/mcp`,
+      mimeType: "application/json",
+    },
+    accepts: [{
+      scheme: "exact",
+      network: NETWORK,
+      amount,
+      asset: USDT0_XLAYER,
+      payTo: config.x402PayTo,
+      maxTimeoutSeconds: 300,
+      extra: { name: "USD₮0", version: "1" },
+    }],
+  };
+  res.setHeader("PAYMENT-REQUIRED", Buffer.from(JSON.stringify(challenge)).toString("base64"));
+  res.status(402).json(challenge);
 }
 
 export function x402Info(): Record<string, unknown> {
