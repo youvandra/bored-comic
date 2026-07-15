@@ -1,0 +1,73 @@
+{
+  "jobId": "cg_example",
+  "summary": "2-page action manga 'Package Dash': 8 panels, 3 characters. Generated in 41s. Language: en. Color mode: color.",
+  "title": "Package Dash",
+  "pages": 2,
+  "totalPanels": 8,
+  "style": "manga",
+  "genre": "action",
+  "language": "en",
+  "colorMode": "color",
+  "characters": [
+    {
+      "name": "Mia",
+      "role": "Young inventor",
+      "appearance": "16 years old, short messy pink hair, goggles on forehead, blue jumpsuit with patches, energetic expression, small build"
+    },
+    {
+      "name": "Bob (B-0B)",
+      "role": "Clumsy robot",
+      "appearance": "Tall, boxy body with mismatched parts, oversized blue eyes, one wheel instead of a left leg, right arm is a grappling hook, wobbly posture"
+    },
+    {
+      "name": "Rival Courier",
+      "role": "Antagonist",
+      "appearance": "Sleek hoverbike rider, dark visor helmet, red streamlined suit, sneering grin visible"
+    }
+  ],
+  "coverUrl": "/comics/cg_example/cover.png",
+  "pageUrls": [
+    "/comics/cg_example/cover.png",
+    "/comics/cg_example/page-1.png",
+    "/comics/cg_example/page-2.png"
+  ],
+  "pdfUrl": "/comics/cg_example/comic.pdf",
+  "perPage": [
+    {
+      "page": 1,
+      "panels": 4,
+      "storyBeat": "In a city that never stops moving, every second counts...",
+      "imageUrl": "/comics/cg_example/page-1.png",
+      "evidence": {
+        "model": "@cf/black-forest-labs/flux-1-schnell",
+        "promptChars": 2773,
+        "characterCount": 2,
+        "layout": "4p",
+        "caveat": "Generated from text prompt — character appearance may vary slightly across pages."
+      }
+    },
+    {
+      "page": 2,
+      "panels": 4,
+      "storyBeat": "But even the clumsiest robot can surprise you...",
+      "imageUrl": "/comics/cg_example/page-2.png",
+      "evidence": {
+        "model": "@cf/black-forest-labs/flux-1-schnell",
+        "promptChars": 3079,
+        "characterCount": 4,
+        "layout": "4p",
+        "caveat": "Generated from text prompt — character appearance may vary slightly across pages."
+      }
+    }
+  ],
+  "evidence": {
+    "model": "@cf/black-forest-labs/flux-1-schnell",
+    "pagesGenerated": 2,
+    "panelsGenerated": 8,
+    "generationTimeSec": 41,
+    "costEstimateUsd": 0.01,
+    "language": "en",
+    "colorMode": "color",
+    "caveat": "Comic is AI-generated. Story coherence and visual consistency are heuristic, not guaranteed."
+  }
+}
