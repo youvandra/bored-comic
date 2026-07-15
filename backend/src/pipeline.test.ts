@@ -5,7 +5,7 @@ test("buildPanelPrompt includes character descriptions and color mode", async ()
   const { buildPanelPrompt } = await import("./pipeline.js");
 
   const prompt = buildPanelPrompt(
-    { panel: 1, scene: "Hero fights villain", characters: ["Hero", "Villain"] },
+    { panel: 1, scene: "Hero fights villain in a dark alley at midnight", characters: ["Hero", "Villain"] },
     [
       { name: "Hero", role: "protagonist", appearance: "young man, red cape" },
       { name: "Villain", role: "antagonist", appearance: "tall figure, dark cloak" },
@@ -14,37 +14,41 @@ test("buildPanelPrompt includes character descriptions and color mode", async ()
     "color",
   );
 
-  assert.ok(prompt.includes("manga style"));
+  assert.ok(prompt.includes("highly detailed"));
   assert.ok(prompt.includes("Hero: young man, red cape"));
-  assert.ok(prompt.includes("full color, vibrant"));
-  assert.ok(prompt.includes("Hero fights villain"));
+  assert.ok(prompt.includes("Villain: tall figure, dark cloak"));
+  assert.ok(prompt.includes("vibrant colors"));
+  assert.ok(prompt.includes("manga style"));
 });
 
 test("buildPanelPrompt handles B&W mode", async () => {
   const { buildPanelPrompt } = await import("./pipeline.js");
 
   const prompt = buildPanelPrompt(
-    { panel: 1, scene: "A dark room", characters: ["Unknown"] },
+    { panel: 1, scene: "A dark room with a single candle", characters: ["Hero"] },
     [],
-    "western",
+    "semi-realistic",
     "bw",
   );
 
-  assert.ok(prompt.includes("black and white, grayscale"));
-  assert.ok(prompt.includes("western style"));
+  assert.ok(prompt.includes("grayscale"));
+  assert.ok(prompt.includes("high contrast"));
+  assert.ok(prompt.includes("semi-realistic"));
 });
 
-test("buildPanelPrompt includes dialogue", async () => {
+test("buildPanelPrompt includes dialogue and camera angle", async () => {
   const { buildPanelPrompt } = await import("./pipeline.js");
 
   const prompt = buildPanelPrompt(
-    { panel: 1, scene: "Hero speaks", characters: ["Hero"], dialogue: "I will save you!" },
+    { panel: 1, scene: "Hero confronts villain", characters: ["Hero"], dialogue: "It's over!", cameraAngle: "low angle" },
     [{ name: "Hero", role: "protagonist", appearance: "young warrior" }],
-    "manga",
+    "western",
     "color",
   );
 
-  assert.ok(prompt.includes('saying: "I will save you!"'));
+  assert.ok(prompt.includes('Speaking: "It\'s over!"'));
+  assert.ok(prompt.includes("Camera angle: low angle"));
+  assert.ok(prompt.includes("western comic style"));
 });
 
 test("pickLayout returns correct number of panels", async () => {
@@ -82,9 +86,12 @@ test("pickLayout returns different layouts for same count", async () => {
   assert.ok(layouts.size >= 2, "Should produce multiple layout variants");
 });
 
-test("estimateCost computes fixed text cost", async () => {
+test("estimateCost scales with panel count", async () => {
   const { estimateCost } = await import("./pipeline.js");
+  // llmCost=0.005 + 4*0.001 = 0.009 → round → 0.01
   assert.equal(estimateCost(1, 4), 0.01);
-  assert.equal(estimateCost(5, 18), 0.01);
-  assert.equal(estimateCost(10, 40), 0.01);
+  // llmCost=0.005 + 18*0.001 = 0.023 → round → 0.02
+  assert.equal(estimateCost(5, 18), 0.02);
+  // llmCost=0.005 + 40*0.001 = 0.045 → round → 0.05
+  assert.equal(estimateCost(10, 40), 0.05);
 });

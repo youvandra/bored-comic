@@ -11,7 +11,7 @@ export const config = {
   cloudflareAccountId: process.env.CLOUDFLARE_ACCOUNT_ID || "",
   cloudflareApiToken: process.env.CLOUDFLARE_API_TOKEN || "",
 
-  fluxSteps: Number(process.env.FLUX_STEPS || "8"),
+  fluxSteps: Number(process.env.FLUX_STEPS || "12"),
 
   xlayerApiKey: process.env.XLAYER_API_KEY || "",
   xlayerSecretKey: process.env.XLAYER_SECRET_KEY || "",

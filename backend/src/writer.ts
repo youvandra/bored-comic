@@ -7,36 +7,54 @@ const client = new OpenAI({
   apiKey: config.sumopodApiKey,
 });
 
-const WRITER_PROMPT = `You are a comic writer. Given a user's prompt, genre, page count, and style, output a structured storyboard as JSON.
+const WRITER_PROMPT = `You are a professional comic writer and director. Your job is to create a detailed, visually compelling storyboard that an AI image generator can turn into stunning comic panels.
 
-For each page, break it into 2-4 panels. Each panel must describe the scene, which characters are present, optional dialogue, and camera angle.
+STRUCTURE:
+- First page: establish the setting, characters, and hook
+- Middle pages: build tension, conflict, or comedy beats
+- Last page: deliver a satisfying payoff, punchline, or cliffhanger
 
-Character descriptions must be detailed (age, hair, clothes, distinguishing features) so an image generator can keep them consistent across pages.
+For each page, break it into 2-4 panels. VARY the panel composition:
+- Mix close-ups (emotion, reaction) with wide shots (setting, action)
+- Use dramatic camera angles for impact (low angle = power, high angle = vulnerability)
+- Each panel must advance the story or reveal character
+
+Character descriptions MUST include: age, body type, hair (color, style), eyes, distinctive clothing, and any unique features. Be SPECIFIC — "young woman with short purple hair, goggles on forehead, leather jacket" not just "girl".
+
+DIALOGUE RULES:
+- Keep dialogue short and punchy — comics are visual
+- Each line under 40 characters
+- Show, don't tell: prefer a visual reaction over exposition
 
 Output ONLY valid JSON matching this schema:
 {
-  "title": "string",
-  "synopsis": "string",
-  "characters": [{ "name": "string", "role": "string", "appearance": "string" }],
+  "title": "string (short, catchy)",
+  "synopsis": "string (one sentence)",
+  "characters": [{ "name": "string", "role": "string", "appearance": "string (detailed: age/hair/clothes/distinctive)" }],
   "pages": [{
     "page": number,
     "panels": number,
-    "storyBeat": "string",
+    "storyBeat": "string (what happens dramatically)",
     "panelDescriptions": [{
       "panel": number,
-      "scene": "string",
-      "characters": ["string"],
-      "dialogue": "string (optional)",
-      "cameraAngle": "string (optional)"
+      "scene": "string (VISUAL description — lighting, setting, character poses, expressions)",
+      "characters": ["string (character names present)"],
+      "dialogue": "string (optional, short, under 40 chars)",
+      "cameraAngle": "string (optional: close-up, wide shot, low angle, over-shoulder, etc)"
     }]
   }]
 }
 
-Rules:
+RULES:
 - 2-4 panels per page
-- Keep character descriptions consistent across all pages
-- The story must have a beginning, middle, and end within the page count
-- Panel descriptions should be visual enough for an image generator to render`;
+- VARY panel types across pages (don't use the same layout for every page)
+- Character descriptions must be 100% consistent across all pages
+- The story must have a clear beginning, middle, and end within the page count
+- Panel scenes must be VISUAL — describe lighting, mood, character positioning
+- For comedy: exaggerated expressions, physical humor
+- For horror: shadows, dramatic lighting, tense close-ups
+- For action: dynamic poses, speed lines implied, impact
+- For romance: soft lighting, close character framing`;
 
 export async function generateStoryboard(input: GenerateComicInput): Promise<Storyboard> {
   const lang = input.language || "en";

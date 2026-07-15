@@ -115,10 +115,17 @@ export function buildPanelPrompt(
     })
     .join("; ");
 
-  const bwTag = colorMode === "bw" ? ", black and white, grayscale, no colors, manga screentone style" : ", full color, vibrant";
-  const dialogueTag = pd.dialogue ? `, character saying: "${pd.dialogue}"` : "";
+  const qualityTags = "highly detailed, sharp focus, cinematic composition";
+  const styleTag = style === "manga" ? "manga style, screentone textures, expressive line art, dynamic angles"
+    : style === "western" ? "western comic style, bold inks, flat colors, confident lines"
+    : style === "semi-realistic" ? "semi-realistic, detailed shading, textured, painterly"
+    : "chibi style, cute proportions, large eyes, soft rendering";
 
-  return `${style} style${bwTag}. ${pd.scene}. Characters present: ${charRefs}.${dialogueTag}${pd.cameraAngle ? ` Camera: ${pd.cameraAngle}.` : ""} Single comic panel, consistent with previous panels.`;
+  const bwTag = colorMode === "bw"
+    ? ", grayscale, high contrast, ink wash, no colors"
+    : ", vibrant colors, rich palette, color harmony";
+
+  return `${qualityTags}, ${styleTag}${bwTag}. ${pd.scene}. ${charRefs}.${pd.dialogue ? ` Speaking: "${pd.dialogue}"` : ""}${pd.cameraAngle ? ` Camera angle: ${pd.cameraAngle}.` : " Dynamic angle."} Single comic panel, consistent character designs.`;
 }
 
 async function assemblePage(params: {
@@ -216,6 +223,8 @@ function escapeXml(s: string): string {
 }
 
 export function estimateCost(pages: number, panels: number): number {
-  const textCost = 0.005;
-  return Math.round((textCost) * 100) / 100;
+  const llmCost = 0.005;
+  const imageCostPerPanel = 0.001;
+  const total = llmCost + imageCostPerPanel * panels;
+  return Math.round(total * 100) / 100;
 }
