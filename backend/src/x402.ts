@@ -50,7 +50,7 @@ export function x402Gate(req: Request, res: Response, next: NextFunction): void 
 
   // Discovery and introspection stay free
   if (body?.method !== "tools/call") return next();
-  const FREE_TOOLS = new Set(["get_quota"]);
+  const FREE_TOOLS = new Set(["get_quota", "clarify_comic"]);
   if (FREE_TOOLS.has(body?.params?.name ?? "")) return next();
 
   // No free quota — every tools/call goes straight to payment
@@ -71,7 +71,7 @@ export function x402Info(): Record<string, unknown> {
     },
     settlement: "on-chain, settled by the OKX facilitator (@okxweb3/x402-express)",
     metered: ["tools/call on POST /mcp"],
-    free: ["initialize", "tools/list", "get_quota"],
+    free: ["initialize", "tools/list", "get_quota", "clarify_comic"],
     note: "No free daily quota — every tools/call past discovery requires payment.",
   };
 }
