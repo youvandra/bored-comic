@@ -25,6 +25,10 @@ app.get("/x402/info", (_req, res) => {
 });
 
 app.post("/mcp", x402Gate, async (req, res) => {
+  const accept = (req.headers["accept"] || "") as string;
+  if (!accept.includes("text/event-stream")) {
+    req.headers["accept"] = "application/json, text/event-stream";
+  }
   const server = buildMcpServer(req.ip);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on("close", () => {
