@@ -1,3 +1,4 @@
+import { bangers, comicNeue, linePath, fitFontSize } from "./fonts.js";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
@@ -351,13 +352,13 @@ async function addSpeechBubble(imageBuf: Buffer, text: string, type: DialogueTyp
   const content = text.toUpperCase();
   const fontSize = Math.max(13, Math.min(20, Math.round(w / 22)));
   const lineH = Math.round(fontSize * 1.35);
-  const avgCharW = fontSize * 0.62;
+  const avgCharW = comicNeue.getAdvanceWidth("ABCDEFGHIJKLMNOPQRSTUVWXYZ ", fontSize) / 27;
   const maxPerLine = Math.max(8, Math.floor((w * 0.78) / avgCharW));
   const maxLines = h < 200 ? 2 : h < 340 ? 3 : 4;
   const lines = wrapText(content, maxPerLine, maxLines);
 
-  const longest = Math.max(...lines.map((l) => l.length));
-  const bubbleW = Math.min(w - 16, Math.round(longest * avgCharW + fontSize * 1.8));
+  const textW = Math.max(...lines.map((l) => comicNeue.getAdvanceWidth(l, fontSize)));
+  const bubbleW = Math.min(w - 16, Math.round(textW + fontSize * 1.8));
   const bubbleH = lines.length * lineH + Math.round(fontSize * 1.1);
   const bx = Math.round((w - bubbleW) / 2);
   const by = 12;
@@ -365,8 +366,8 @@ async function addSpeechBubble(imageBuf: Buffer, text: string, type: DialogueTyp
   const tailBase = by + bubbleH;
 
   const textStartY = by + Math.round((bubbleH - (lines.length - 1) * lineH) / 2) + Math.round(fontSize * 0.35);
-  const tspans = lines
-    .map((l, i) => `<tspan x="${cx}" dy="${i === 0 ? 0 : lineH}">${escapeXml(l)}</tspan>`)
+  const textPaths = lines
+    .map((l, i) => `<path d="${linePath(comicNeue, l, fontSize, cx, textStartY + i * lineH).d}" fill="#000000"/>`)
     .join("");
 
   let shape: string;
@@ -388,8 +389,7 @@ async function addSpeechBubble(imageBuf: Buffer, text: string, type: DialogueTyp
 
   const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
       ${shape}
-      <text x="${cx}" y="${textStartY}" font-family="'Arial Black', 'Helvetica Neue', Helvetica, sans-serif"
-            font-size="${fontSize}" font-weight="900" fill="#000000" text-anchor="middle">${tspans}</text>
+      ${textPaths}
     </svg>`;
 
   return sharp(imageBuf)
@@ -412,17 +412,17 @@ async function addSfx(imageBuf: Buffer, sfx: string): Promise<Buffer> {
   const h = meta.height || 300;
 
   const word = sfx.toUpperCase().slice(0, 12);
-  const fontSize = Math.max(30, Math.min(Math.round(w / 4.5), Math.floor((w * 0.9) / (word.length * 0.62))));
+  const fontSize = fitFontSize(bangers, word, w * 0.92, Math.round(w / 3.2), 30);
   const fill = sfxColor(word);
   const cx = Math.round(w * 0.5);
   const cy = Math.round(h * 0.66);
   const angle = -12;
+  const { d } = linePath(bangers, word, fontSize, cx, cy + fontSize * 0.34);
 
   const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
       <g transform="rotate(${angle} ${cx} ${cy})">
-        <text x="${cx}" y="${cy}" font-family="'Arial Black', 'Impact', sans-serif" font-size="${fontSize}" font-weight="900"
-              fill="${fill}" stroke="#000000" stroke-width="${Math.max(4, Math.round(fontSize / 8))}"
-              paint-order="stroke" stroke-linejoin="round" text-anchor="middle" dominant-baseline="middle">${escapeXml(word)}</text>
+        <path d="${d}" fill="${fill}" stroke="#000000" stroke-width="${Math.max(4, Math.round(fontSize / 8))}"
+              paint-order="stroke" stroke-linejoin="round"/>
       </g>
     </svg>`;
 
@@ -468,21 +468,27 @@ async function assembleCover(params: {
 function renderCoverOverlay(title: string, genre: string | undefined, synopsis: string, pageW: number, pageH: number): Buffer {
   const M = GUTTER + 6;
 
-  // Genre badge (top-left).
+  // Genre badge (top-left), lettered in Bangers.
   const genreLabel = (genre || "comic").toUpperCase();
-  const badgeW = genreLabel.length * 12 + 28;
-  const badgeH = 32;
+  const badgeH = 34;
+  const genreSize = 20;
+  const badgeW = Math.round(bangers.getAdvanceWidth(genreLabel, genreSize)) + 26;
+  const genrePath = linePath(bangers, genreLabel, genreSize, M + badgeW / 2, M + badgeH / 2 + genreSize * 0.35).d;
 
-  // Big outlined title, centered near the top. Arial Black glyphs are wide
-  // (~0.92em each), so size to fit the widest line within the page margins.
-  const titleLines = wrapText(title.toUpperCase(), 11, 2);
-  const longest = Math.max(...titleLines.map((l) => l.length), 1);
-  const titleSize = Math.max(34, Math.min(Math.round(pageW / 7), Math.floor((pageW - M * 2) / (longest * 0.92))));
-  const titleLineH = Math.round(titleSize * 1.02);
-  const titleBaseline = M + badgeH + 28 + titleSize;
-  const titleSpans = titleLines
-    .map((l, i) => `<tspan x="${pageW / 2}" dy="${i === 0 ? 0 : titleLineH}">${escapeXml(l)}</tspan>`)
+  // Big outlined title, centered near the top. Size to fit the widest line.
+  const titleLines = wrapText(title.toUpperCase(), 16, 2);
+  const titleSize = Math.min(...titleLines.map((l) => fitFontSize(bangers, l, pageW - M * 2, Math.round(pageW / 5), 40)));
+  const titleLineH = Math.round(titleSize * 0.92);
+  const titleBaseline = M + badgeH + 24 + titleSize;
+  const titlePaths = titleLines
+    .map((l, i) => `<path d="${linePath(bangers, l, titleSize, pageW / 2, titleBaseline + i * titleLineH).d}"
+            fill="#ffd23f" stroke="#000000" stroke-width="${Math.max(3, Math.round(titleSize / 12))}" paint-order="stroke" stroke-linejoin="round"/>`)
     .join("");
+
+  // Byline, bottom-right, right-aligned.
+  const bylineText = "BOREDCOMIC";
+  const bylineSize = 20;
+  const bylineW = bangers.getAdvanceWidth(bylineText, bylineSize);
 
   // Synopsis caption box (bottom).
   const synSize = 16;
@@ -505,17 +511,15 @@ function renderCoverOverlay(title: string, genre: string | undefined, synopsis: 
       <rect x="0" y="0" width="${pageW}" height="${Math.round(pageH * 0.3)}" fill="url(#topScrim)"/>
 
       <rect x="${M}" y="${M}" width="${badgeW}" height="${badgeH}" rx="4" fill="#e63946" stroke="#000000" stroke-width="3"/>
-      <text x="${M + badgeW / 2}" y="${M + badgeH / 2 + 6}" font-family="'Arial Black', sans-serif" font-size="17" font-weight="900" fill="#ffffff" text-anchor="middle">${escapeXml(genreLabel)}</text>
+      <path d="${genrePath}" fill="#ffffff"/>
 
-      <text x="${pageW / 2}" y="${titleBaseline}" font-family="'Arial Black', 'Helvetica', sans-serif" font-size="${titleSize}" font-weight="900"
-            fill="#ffd23f" stroke="#000000" stroke-width="${Math.max(3, Math.round(titleSize / 12))}" paint-order="stroke" stroke-linejoin="round"
-            text-anchor="middle">${titleSpans}</text>
+      ${titlePaths}
 
       <rect x="${M}" y="${synY}" width="${pageW - M * 2}" height="${synBoxH}" rx="3" fill="#f5e9c8" stroke="#000000" stroke-width="3"/>
       <text x="${M + 12}" y="${synY + 22}" font-family="Georgia, 'Times New Roman', serif" font-size="${synSize}" font-style="italic" fill="#1a1a1a">${synSpans}</text>
 
-      <text x="${pageW - M}" y="${synY - 12}" font-family="'Arial Black', sans-serif" font-size="15" font-weight="900"
-            fill="#ffffff" stroke="#000000" stroke-width="0.8" paint-order="stroke" text-anchor="end">BOREDCOMIC</text>
+      <path d="${linePath(bangers, bylineText, bylineSize, pageW - M - bylineW / 2, synY - 12).d}"
+            fill="#ffffff" stroke="#000000" stroke-width="0.8" paint-order="stroke"/>
     </svg>`;
 
   return Buffer.from(svg);
