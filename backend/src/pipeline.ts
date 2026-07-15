@@ -158,7 +158,7 @@ async function assemblePage(params: {
       .resize(
         Math.round((PAGE_W - GUTTER * 2) * layout.w),
         Math.round((PAGE_H - GUTTER * 2) * layout.h),
-        { fit: "cover", position: "center" },
+        { fit: "fill" },
       )
       .png()
       .toBuffer();
@@ -209,19 +209,24 @@ async function addSpeechBubble(imageBuf: Buffer, text: string): Promise<Buffer> 
   const maxChars = 60;
   const truncated = text.length > maxChars ? text.slice(0, maxChars - 3) + "..." : text;
 
-  const svg = `<svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-      <rect x="10" y="10" width="${800 - 20}" height="50" rx="8" ry="8"
+  const meta = await sharp(imageBuf).metadata();
+  const w = meta.width || 300;
+  const bubbleH = 50;
+
+  const svg = `<svg width="${w}" height="${bubbleH * 2 + 10}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="10" y="10" width="${w - 20}" height="${bubbleH}" rx="8" ry="8"
             fill="white" fill-opacity="0.85" stroke="black" stroke-width="1.5"/>
-      <text x="400" y="42" font-family="sans-serif" font-size="18" font-weight="bold"
+      <text x="${w / 2}" y="${bubbleH / 2 + 12}" font-family="sans-serif" font-size="18" font-weight="bold"
             fill="black" text-anchor="middle" dominant-baseline="middle"
             xml:space="preserve">${escapeXml(truncated)}</text>
     </svg>`;
 
-  const result = await sharp(imageBuf)
-    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+  const bubbleImg = await sharp(Buffer.from(svg)).resize(w, bubbleH + 10).png().toBuffer();
+
+  return sharp(imageBuf)
+    .composite([{ input: bubbleImg, top: 0, left: 0 }])
     .png()
     .toBuffer();
-  return result;
 }
 
 function escapeXml(s: string): string {
