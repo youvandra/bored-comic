@@ -48,8 +48,10 @@ Output ONLY valid JSON:
       "panel": number,
       "scene": "VISUAL — lighting, setting, character poses, expressions, mood",
       "characters": ["names"],
-      "dialogue": "short, under 30 chars (optional)",
+      "dialogue": "first speaker's line, under 30 chars (optional)",
       "dialogueType": "speech | shout | thought (optional, default speech)",
+      "dialogue2": "second speaker's REPLY, under 30 chars — ONLY when two characters talk in the same panel (optional)",
+      "dialogue2Type": "speech | shout | thought (optional)",
       "sfx": "onomatopoeia in CAPS for action panels only (optional)",
       "cameraAngle": "close-up | wide shot | low angle | over-shoulder (optional)"
     }]

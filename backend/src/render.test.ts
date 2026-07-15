@@ -24,6 +24,23 @@ test("wrapText truncates at a word boundary with an ellipsis", async () => {
   assert.ok(lines.every((l) => !/\w…\w/.test(l)));
 });
 
+test("GENRE_GRADES stay subtle and directionally correct", async () => {
+  const { GENRE_GRADES } = await import("./pipeline.js");
+
+  for (const [genre, g] of Object.entries(GENRE_GRADES)) {
+    assert.ok(g.saturation >= 0.6 && g.saturation <= 1.3, `${genre} saturation subtle`);
+    assert.ok(g.brightness >= 0.85 && g.brightness <= 1.15, `${genre} brightness subtle`);
+  }
+  // Mood direction: horror drains, romance/comedy lift.
+  assert.ok(GENRE_GRADES.horror.saturation < 1);
+  assert.ok(GENRE_GRADES.horror.brightness < 1);
+  assert.ok(GENRE_GRADES.romance.saturation > 1);
+  assert.ok(GENRE_GRADES.comedy.brightness > 1);
+  // No grade for neutral genres.
+  assert.equal(GENRE_GRADES["slice-of-life"], undefined);
+  assert.equal(GENRE_GRADES["manga"], undefined);
+});
+
 test("balloonType: exclamations shout, ellipsis thinks, tag wins for thought", async () => {
   const { balloonType } = await import("./pipeline.js");
   const pd = (dialogue: string, dialogueType?: "speech" | "shout" | "thought") =>

@@ -73,7 +73,7 @@ export async function runPipeline(
       panelImages.push(img);
     }
 
-    await assemblePage({ panels: panelImages, layouts, pageNumber: page.page, workDir, descriptions: page.panelDescriptions, storyBeat: page.storyBeat, colorMode, pageW, pageH });
+    await assemblePage({ panels: panelImages, layouts, pageNumber: page.page, workDir, descriptions: page.panelDescriptions, storyBeat: page.storyBeat, colorMode, genre: input.genre, pageW, pageH });
 
     // Report the panels actually rendered, not the LLM's declared count.
     const renderedPanels = page.panelDescriptions.length;
@@ -145,6 +145,25 @@ export async function runPipeline(
   };
 }
 
+// Subtle per-genre color grade applied to the finished page/cover (color mode
+// only — B&W already carries its mood through grayscale). Values stay close to
+// 1.0 on purpose: a mood shift, not a filter.
+export const GENRE_GRADES: Record<string, { saturation: number; brightness: number }> = {
+  horror: { saturation: 0.72, brightness: 0.92 }, // drained, cold dread
+  "sci-fi": { saturation: 0.9, brightness: 0.97 }, // slightly clinical
+  romance: { saturation: 1.1, brightness: 1.05 }, // warm, soft lift
+  comedy: { saturation: 1.12, brightness: 1.06 }, // bright and bouncy
+  action: { saturation: 1.15, brightness: 1.0 }, // punchy chroma
+  fantasy: { saturation: 1.08, brightness: 1.02 }, // lush
+};
+
+function applyGenreGrade(img: ReturnType<typeof sharp>, genre: string | undefined, colorMode: string): ReturnType<typeof sharp> {
+  if (colorMode === "bw" || !genre) return img;
+  const g = GENRE_GRADES[genre];
+  if (!g) return img;
+  return img.modulate({ saturation: g.saturation, brightness: g.brightness });
+}
+
 // Speech and narration are overlaid separately, so keep the art free of any
 // baked-in lettering — FLUX otherwise renders garbled text that can't be read.
 const NO_TEXT_TAG = " Absolutely no text, no speech bubbles, no captions, no letters, no watermark, no signature in the image.";
@@ -188,10 +207,11 @@ async function assemblePage(params: {
   descriptions: PanelDescription[];
   storyBeat: string;
   colorMode: string;
+  genre?: string;
   pageW: number;
   pageH: number;
 }): Promise<string> {
-  const { panels, layouts, pageNumber, workDir, descriptions, storyBeat, colorMode, pageW, pageH } = params;
+  const { panels, layouts, pageNumber, workDir, descriptions, storyBeat, colorMode, genre, pageW, pageH } = params;
   if (panels.length === 0) return "";
 
   const composite: { input: string | Buffer; top: number; left: number }[] = [];
@@ -216,7 +236,16 @@ async function assemblePage(params: {
     const anchor: BalloonAnchor = i === 0 && storyBeat ? "right" : i % 2 === 0 ? "left" : "right";
     // SFX first (under the balloon), then the balloon on top.
     if (pd?.sfx) panelBuf = await addSfx(panelBuf, pd.sfx);
-    if (pd?.dialogue) panelBuf = await addSpeechBubble(panelBuf, pd.dialogue, balloonType(pd), anchor);
+    if (pd?.dialogue) {
+      const first = await addSpeechBubble(panelBuf, pd.dialogue, balloonType(pd), anchor);
+      panelBuf = first.buf;
+      // Second speaker's reply: opposite corner, below the first (reading order).
+      if (pd.dialogue2) {
+        const anchor2: BalloonAnchor = anchor === "left" ? "right" : "left";
+        const type2 = balloonType({ ...pd, dialogue: pd.dialogue2, dialogueType: pd.dialogue2Type });
+        panelBuf = (await addSpeechBubble(panelBuf, pd.dialogue2, type2, anchor2, first.bottom - 4)).buf;
+      }
+    }
     const buf = panelBuf;
 
     const x = Math.round(GUTTER + (pageW - GUTTER) * layout.x);
@@ -247,6 +276,8 @@ async function assemblePage(params: {
 
   if (colorMode === "bw") {
     pipeline = pipeline.grayscale();
+  } else {
+    pipeline = applyGenreGrade(pipeline, genre, colorMode);
   }
 
   await pipeline.png().toFile(outputPath);
@@ -360,8 +391,10 @@ type BalloonAnchor = "left" | "center" | "right";
 
 // Opaque comic balloon near the top of the panel, all-caps lettering. Shape
 // varies by type: rounded speech, jagged shout, puffy thought. `anchor` hugs a
-// corner so the balloon covers less of the focal subject.
-async function addSpeechBubble(imageBuf: Buffer, text: string, type: DialogueType = "speech", anchor: BalloonAnchor = "center"): Promise<Buffer> {
+// corner so the balloon covers less of the focal subject; `yOffset` pushes the
+// balloon down (used to stack a second speaker's reply). Returns the lettered
+// image plus the y where the balloon (tail included) ends.
+async function addSpeechBubble(imageBuf: Buffer, text: string, type: DialogueType = "speech", anchor: BalloonAnchor = "center", yOffset = 0): Promise<{ buf: Buffer; bottom: number }> {
   const meta = await sharp(imageBuf).metadata();
   const w = meta.width || 300;
   const h = meta.height || 300;
@@ -381,7 +414,7 @@ async function addSpeechBubble(imageBuf: Buffer, text: string, type: DialogueTyp
   const bx = anchor === "left" ? sideMargin
     : anchor === "right" ? w - bubbleW - sideMargin
     : Math.round((w - bubbleW) / 2);
-  const by = 12;
+  const by = 12 + yOffset;
   const cx = bx + bubbleW / 2;
   const tailBase = by + bubbleH;
 
@@ -412,10 +445,11 @@ async function addSpeechBubble(imageBuf: Buffer, text: string, type: DialogueTyp
       ${textPaths}
     </svg>`;
 
-  return sharp(imageBuf)
+  const buf = await sharp(imageBuf)
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
     .png()
     .toBuffer();
+  return { buf, bottom: tailBase + (type === "thought" ? 32 : 18) };
 }
 
 // Big angled onomatopoeia word art for action panels.
@@ -482,6 +516,7 @@ async function assembleCover(params: {
     { input: renderCoverOverlay(storyboard.title, genre, storyboard.synopsis, pageW, pageH), top: 0, left: 0 },
   ]);
   if (colorMode === "bw") pipeline = pipeline.grayscale();
+  else pipeline = applyGenreGrade(pipeline, genre, colorMode);
 
   await pipeline.png().toFile(join(workDir, "cover.png"));
   return `/comics/${jobId}/cover.png`;

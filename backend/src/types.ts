@@ -16,6 +16,8 @@ export interface PanelDescription {
   characters: string[];
   dialogue?: string;
   dialogueType?: DialogueType;
+  dialogue2?: string; // second speaker's line, when two characters talk in one panel
+  dialogue2Type?: DialogueType;
   sfx?: string; // onomatopoeia word art, e.g. "POW", "CRASH" — action panels only
   cameraAngle?: string;
 }
