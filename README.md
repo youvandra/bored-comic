@@ -3,10 +3,10 @@
 **AI comic generator as an A2MCP Agent Service Provider on OKX.AI.** A requesting agent sends a prompt, genre, page count, and style — BoredComic writes the story, generates each panel image, assembles them into pages, and returns a complete PDF with **decision-grade metadata** the agent can evaluate without reading the comic.
 
 | | |
-|---|---|
+|---|---|---|
 | **Type** | A2MCP — pay-per-call via x402 |
-| **Agent ID** | — |
-| **Endpoint** | — |
+| **Agent ID** | — (not yet registered) |
+| **Endpoint** | `https://boredcomic.web.id/mcp` |
 | **Price** | 0.5–1.5 USDT per generation · no free calls |
 
 ## Why an agent needs this
