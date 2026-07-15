@@ -1,5 +1,22 @@
 import "dotenv/config";
 
+export interface CloudflareAccount {
+  accountId: string;
+  apiToken: string;
+}
+
+function collectCloudflareAccounts(): CloudflareAccount[] {
+  const accounts: CloudflareAccount[] = [];
+  const push = (id?: string, token?: string) => {
+    if (id && token) accounts.push({ accountId: id, apiToken: token });
+  };
+  push(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_API_TOKEN);
+  for (let i = 2; i <= 8; i++) {
+    push(process.env[`CLOUDFLARE_ACCOUNT_ID_${i}`], process.env[`CLOUDFLARE_API_TOKEN_${i}`]);
+  }
+  return accounts;
+}
+
 export const config = {
   port: Number(process.env.PORT || "3001"),
   nodeEnv: process.env.NODE_ENV || "development",
@@ -8,11 +25,9 @@ export const config = {
   sumopodBaseUrl: process.env.SUMOPOD_BASE_URL || "https://ai.sumopod.com/v1",
   sumopodModel: process.env.SUMOPOD_MODEL || "deepseek-v4-flash",
 
-  cloudflareAccountId: process.env.CLOUDFLARE_ACCOUNT_ID || "",
-  cloudflareApiToken: process.env.CLOUDFLARE_API_TOKEN || "",
-
-  cloudflareAccountId2: process.env.CLOUDFLARE_ACCOUNT_ID_2 || "",
-  cloudflareApiToken2: process.env.CLOUDFLARE_API_TOKEN_2 || "",
+  // Cloudflare accounts for image generation, tried in order for quota fallback.
+  // CLOUDFLARE_ACCOUNT_ID/_TOKEN is the first; _2, _3, ... add more.
+  cloudflareAccounts: collectCloudflareAccounts(),
 
   fluxSteps: Number(process.env.FLUX_STEPS || "8"),
 

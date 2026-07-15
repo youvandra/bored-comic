@@ -1,21 +1,11 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { config } from "./config.js";
+import { config, type CloudflareAccount } from "./config.js";
 
-interface CfProvider {
-  accountId: string;
-  apiToken: string;
-}
-
-const PROVIDERS: CfProvider[] = [];
+const PROVIDERS: CloudflareAccount[] = [];
 
 function initProviders(): void {
-  if (config.cloudflareAccountId && config.cloudflareApiToken) {
-    PROVIDERS.push({ accountId: config.cloudflareAccountId, apiToken: config.cloudflareApiToken });
-  }
-  if (config.cloudflareAccountId2 && config.cloudflareApiToken2) {
-    PROVIDERS.push({ accountId: config.cloudflareAccountId2, apiToken: config.cloudflareApiToken2 });
-  }
+  PROVIDERS.push(...config.cloudflareAccounts);
 }
 
 // True if at least one Cloudflare account is configured. Used for preflight

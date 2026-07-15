@@ -203,9 +203,12 @@ async function assemblePage(params: {
       .toBuffer();
 
     const pd = descriptions[i];
+    // Keep lettering off the focal subject (usually centered): balloons hug a
+    // top corner, SFX sits low. Panel 0 avoids the top-left narration caption.
+    const anchor: BalloonAnchor = i === 0 && storyBeat ? "right" : i % 2 === 0 ? "left" : "right";
     // SFX first (under the balloon), then the balloon on top.
     if (pd?.sfx) panelBuf = await addSfx(panelBuf, pd.sfx);
-    if (pd?.dialogue) panelBuf = await addSpeechBubble(panelBuf, pd.dialogue, balloonType(pd));
+    if (pd?.dialogue) panelBuf = await addSpeechBubble(panelBuf, pd.dialogue, balloonType(pd), anchor);
     const buf = panelBuf;
 
     const x = Math.round(GUTTER + (pageW - GUTTER) * layout.x);
@@ -275,16 +278,19 @@ function renderFrames(frames: { x: number; y: number; w: number; h: number }[], 
   return Buffer.from(`<svg width="${pageW}" height="${pageH}" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`);
 }
 
-// Classic cream narration caption box, top-left corner, wrapped (no truncation).
+// Classic cream narration caption box, top-left corner, sized to its text so it
+// covers as little art as possible (max two lines).
 function renderNarration(text: string, pageW: number, pageH: number): Buffer {
   const primary = text.split(";").map((s) => s.trim()).filter(Boolean)[0] || text;
-  const boxW = Math.round(pageW * 0.62);
   const padX = 14;
-  const padY = 10;
+  const padY = 9;
   const fontSize = 15;
   const lineH = 21;
-  const maxPerLine = Math.max(12, Math.floor((boxW - padX * 2) / (fontSize * 0.5)));
-  const lines = wrapText(primary, maxPerLine, 3);
+  const charW = fontSize * 0.5; // serif italic average
+  const hardMax = Math.floor((pageW * 0.6 - padX * 2) / charW);
+  const lines = wrapText(primary, hardMax, 2);
+  const longest = Math.max(...lines.map((l) => l.length), 1);
+  const boxW = Math.min(Math.round(pageW * 0.6), Math.round(longest * charW + padX * 2));
   const boxH = lines.length * lineH + padY * 2;
   const x = GUTTER;
   const y = GUTTER;
@@ -342,9 +348,12 @@ function cloudPath(x: number, y: number, w: number, h: number, r: number): strin
   return d + " Z";
 }
 
+type BalloonAnchor = "left" | "center" | "right";
+
 // Opaque comic balloon near the top of the panel, all-caps lettering. Shape
-// varies by type: rounded speech, jagged shout, puffy thought.
-async function addSpeechBubble(imageBuf: Buffer, text: string, type: DialogueType = "speech"): Promise<Buffer> {
+// varies by type: rounded speech, jagged shout, puffy thought. `anchor` hugs a
+// corner so the balloon covers less of the focal subject.
+async function addSpeechBubble(imageBuf: Buffer, text: string, type: DialogueType = "speech", anchor: BalloonAnchor = "center"): Promise<Buffer> {
   const meta = await sharp(imageBuf).metadata();
   const w = meta.width || 300;
   const h = meta.height || 300;
@@ -360,9 +369,12 @@ async function addSpeechBubble(imageBuf: Buffer, text: string, type: DialogueTyp
   const textW = Math.max(...lines.map((l) => comicNeue.getAdvanceWidth(l, fontSize)));
   const bubbleW = Math.min(w - 16, Math.round(textW + fontSize * 1.8));
   const bubbleH = lines.length * lineH + Math.round(fontSize * 1.1);
-  const bx = Math.round((w - bubbleW) / 2);
+  const sideMargin = 10;
+  const bx = anchor === "left" ? sideMargin
+    : anchor === "right" ? w - bubbleW - sideMargin
+    : Math.round((w - bubbleW) / 2);
   const by = 12;
-  const cx = w / 2;
+  const cx = bx + bubbleW / 2;
   const tailBase = by + bubbleH;
 
   const textStartY = by + Math.round((bubbleH - (lines.length - 1) * lineH) / 2) + Math.round(fontSize * 0.35);
@@ -412,11 +424,13 @@ async function addSfx(imageBuf: Buffer, sfx: string): Promise<Buffer> {
   const h = meta.height || 300;
 
   const word = sfx.toUpperCase().slice(0, 12);
-  const fontSize = fitFontSize(bangers, word, w * 0.92, Math.round(w / 3.2), 30);
+  // Target a fraction of the width that leaves room for the -12° rotation, so
+  // the whole word stays inside the panel instead of clipping at the edge.
+  const fontSize = fitFontSize(bangers, word, w * 0.78, Math.round(w / 4), 26);
   const fill = sfxColor(word);
   const cx = Math.round(w * 0.5);
-  const cy = Math.round(h * 0.66);
-  const angle = -12;
+  const cy = Math.round(h * 0.76);
+  const angle = -11;
   const { d } = linePath(bangers, word, fontSize, cx, cy + fontSize * 0.34);
 
   const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
