@@ -183,7 +183,7 @@ Point an MCP client at `http://localhost:3001/mcp`. With `X402_MODE=off` (the de
 | `SUMOPOD_API_KEY` | LLM API key (Sumopod) — **required** |
 | `SUMOPOD_BASE_URL` / `SUMOPOD_MODEL` | LLM endpoint and model (default `deepseek-v4-flash`) |
 | `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | Cloudflare Workers AI for image generation — **required** |
-| `CLOUDFLARE_ACCOUNT_ID_2` / `CLOUDFLARE_API_TOKEN_2` | Optional second account for quota fallback |
+| `CLOUDFLARE_ACCOUNT_ID_2` / `_3` … up to `_8` | Optional extra accounts for quota fallback |
 | `FLUX_STEPS` | Diffusion steps per panel (default 8) |
 | `XLAYER_API_KEY` / `XLAYER_SECRET_KEY` / `XLAYER_PASSPHRASE` | OKX facilitator credentials for x402 settlement |
 | `X402_MODE` | `off` · `demo` · `on` (default `off`) |
