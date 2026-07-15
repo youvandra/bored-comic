@@ -3,112 +3,219 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Bored Comic — AI Comic Generator</title>
+  <title>BoredComic — AI Comic Generator</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet" />
   <style>
-    body { font-family: ui-sans-serif, system-ui, sans-serif; }
-    .brut { border: 3px solid #000; box-shadow: 6px 6px 0 #000; }
-    .brut-sm { border: 2px solid #000; box-shadow: 3px 3px 0 #000; }
+    :root {
+      --ink: #111111;
+      --paper: #fdf6e3;
+      --yellow: #ffd23f;
+      --red: #e63946;
+      --blue: #4361ee;
+      --cream: #f5e9c8;
+    }
+    body {
+      font-family: 'Comic Neue', ui-sans-serif, system-ui, sans-serif;
+      color: var(--ink);
+      background-color: #ffd23f;
+      /* Ben-Day halftone dots */
+      background-image: radial-gradient(rgba(0,0,0,0.14) 1.4px, transparent 1.5px);
+      background-size: 14px 14px;
+    }
+    .display { font-family: 'Bangers', cursive; letter-spacing: 1px; }
+    .ink { border: 3px solid var(--ink); }
+    .panel {
+      border: 3px solid var(--ink);
+      box-shadow: 8px 8px 0 var(--ink);
+      background: var(--paper);
+    }
+    .panel-sm { border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); }
+    .outline-title {
+      color: var(--yellow);
+      -webkit-text-stroke: 2px var(--ink);
+      text-shadow: 4px 4px 0 var(--ink);
+    }
+    /* Speech bubble */
+    .bubble {
+      position: relative;
+      background: #fff;
+      border: 3px solid var(--ink);
+      border-radius: 22px;
+      padding: 14px 20px;
+    }
+    .bubble::after {
+      content: "";
+      position: absolute;
+      left: 42px;
+      bottom: -22px;
+      border-width: 22px 16px 0 0;
+      border-style: solid;
+      border-color: var(--ink) transparent transparent transparent;
+    }
+    .bubble::before {
+      content: "";
+      position: absolute;
+      left: 45px;
+      bottom: -16px;
+      border-width: 17px 12px 0 0;
+      border-style: solid;
+      border-color: #fff transparent transparent transparent;
+      z-index: 1;
+    }
+    /* Starburst badge */
+    .burst {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: var(--red); color: #fff;
+      font-family: 'Bangers', cursive; letter-spacing: 1px;
+      border: 3px solid var(--ink);
+      padding: 8px 18px;
+      transform: rotate(-4deg);
+      box-shadow: 3px 3px 0 var(--ink);
+    }
+    .tag-blue { background: var(--blue); color: #fff; }
+    .tag-yellow { background: var(--yellow); color: var(--ink); }
+    code { font-family: 'Comic Neue', monospace; font-weight: 700; }
+    .zig { background: repeating-linear-gradient(45deg, var(--ink) 0 8px, transparent 8px 16px); }
   </style>
 </head>
-<body class="bg-[#1a1a2e] text-white min-h-screen">
-  <div class="max-w-4xl mx-auto px-4 py-8">
-    <header class="mb-8">
-      <h1 class="text-4xl font-black tracking-tight">
-        Bored<span class="bg-fuchsia-500 px-1 brut-sm">Comic</span>
-      </h1>
-      <p class="mt-2 font-medium text-neutral-300">
-        An A2MCP agent on OKX.AI. Send a prompt, genre, page count, and style;
-        receive a complete comic PDF with decision-grade metadata.
-      </p>
+<body class="min-h-screen">
+  <div class="max-w-5xl mx-auto px-4 py-10">
+
+    <!-- HERO -->
+    <header class="text-center mb-10">
+      <div class="burst mb-4 text-lg">PAY-PER-CALL · x402</div>
+      <h1 class="display outline-title text-6xl sm:text-8xl leading-none">BORED<span style="color:var(--red);-webkit-text-stroke:2px var(--ink)">COMIC</span></h1>
+      <div class="flex justify-center mt-8">
+        <div class="bubble max-w-xl text-left text-lg font-bold">
+          "I have a story idea — make it into a comic I can share."
+          <br /><span class="font-normal">An A2MCP agent on OKX.AI turns a prompt into a full comic: story, panels, speech bubbles, cover, and a PDF.</span>
+        </div>
+      </div>
     </header>
 
-    <section class="bg-[#16213e] brut p-5 mb-6">
-      <h2 class="text-lg font-bold mb-3">Tool: <code>generate_comic</code></h2>
-      <p class="text-neutral-300 mb-3">
-        MCP endpoint: <code class="text-fuchsas-300">POST /mcp</code>
-        — paid via x402 (no free quota).
-      </p>
-
-      <table class="w-full text-sm text-left">
-        <thead>
-          <tr class="border-b border-neutral-600">
-            <th class="py-2 pr-4">Parameter</th>
-            <th class="py-2 pr-4">Type</th>
-            <th class="py-2">Description</th>
-          </tr>
-        </thead>
-        <tbody class="text-neutral-300">
-          <tr class="border-b border-neutral-700">
-            <td class="py-2 pr-4 font-bold">prompt</td>
-            <td class="py-2 pr-4">string</td>
-            <td class="py-2">What the comic should be about</td>
-          </tr>
-          <tr class="border-b border-neutral-700">
-            <td class="py-2 pr-4 font-bold">genre</td>
-            <td class="py-2 pr-4">enum</td>
-            <td class="py-2">horror, romance, action, comedy, manga, fantasy, sci-fi, 18+</td>
-          </tr>
-          <tr class="border-b border-neutral-700">
-            <td class="py-2 pr-4 font-bold">pages</td>
-            <td class="py-2 pr-4">1-10</td>
-            <td class="py-2">Number of pages</td>
-          </tr>
-          <tr class="border-b border-neutral-700">
-            <td class="py-2 pr-4 font-bold">style</td>
-            <td class="py-2 pr-4">enum</td>
-            <td class="py-2">manga, western, semi-realistic, chibi</td>
-          </tr>
-          <tr>
-            <td class="py-2 pr-4 font-bold">aspectRatio</td>
-            <td class="py-2 pr-4">enum</td>
-            <td class="py-2">3:4, 9:16, 1:1 (default 3:4)</td>
-          </tr>
-        </tbody>
-      </table>
+    <!-- HOW IT READS -->
+    <section class="grid sm:grid-cols-4 gap-4 mb-12">
+      <div class="panel-sm bg-white p-4 text-center">
+        <div class="display text-3xl" style="color:var(--red)">1</div>
+        <div class="font-bold">WRITE</div>
+        <p class="text-sm">LLM builds the storyboard: characters, pages, panels, dialogue.</p>
+      </div>
+      <div class="panel-sm bg-white p-4 text-center">
+        <div class="display text-3xl" style="color:var(--blue)">2</div>
+        <div class="font-bold">DRAW</div>
+        <p class="text-sm">FLUX generates each panel image, no text baked in.</p>
+      </div>
+      <div class="panel-sm bg-white p-4 text-center">
+        <div class="display text-3xl" style="color:var(--ink)">3</div>
+        <div class="font-bold">LETTER</div>
+        <p class="text-sm">Panel frames, speech balloons, and caption boxes composited on.</p>
+      </div>
+      <div class="panel-sm bg-white p-4 text-center">
+        <div class="display text-3xl" style="color:#0a9">4</div>
+        <div class="font-bold">DELIVER</div>
+        <p class="text-sm">Cover + pages + PDF + decision-grade metadata.</p>
+      </div>
     </section>
 
-    <section class="bg-[#16213e] brut p-5 mb-6">
-      <h2 class="text-lg font-bold mb-3">Example delivery</h2>
-      <pre class="text-xs text-neutral-300 overflow-x-auto">
-{
-  "jobId": "cg_1234",
-  "summary": "5-page horror manga 'Hantu di Kos': 18 panels, 4 characters. Generated in 32s.",
-  "title": "Hantu di Kos",
-  "pageUrls": ["/comics/cg_1234/page-1.png", "/comics/cg_1234/page-2.png"],
-  "pdfUrl": "/comics/cg_1234/comic.pdf",
-  "characters": [{ "name": "Rudi", "role": "protagonist", "appearance": "young man, 20s, curly hair, glasses" }],
-  "perPage": [{
-    "page": 1, "panels": 4,
-    "storyBeat": "Rudi arrives at the boarding house",
-    "evidence": { "model": "@cf/black-forest-labs/flux-1-schnell" }
-  }],
+    <!-- TOOL -->
+    <section class="panel p-6 mb-10">
+      <div class="flex items-center gap-3 mb-4 flex-wrap">
+        <span class="burst text-base">TOOL</span>
+        <h2 class="display text-4xl">generate_comic</h2>
+      </div>
+      <p class="mb-4 font-bold">
+        MCP endpoint: <code class="ink tag-yellow px-2 py-1">POST /mcp</code>
+        — paid via x402, no free quota.
+      </p>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="display text-xl" style="background:var(--ink);color:var(--yellow)">
+              <th class="p-3">Param</th><th class="p-3">Type</th><th class="p-3">Description</th>
+            </tr>
+          </thead>
+          <tbody class="font-bold">
+            <tr class="ink border-t-0"><td class="p-3 border-r-2 border-black">prompt</td><td class="p-3 border-r-2 border-black">string</td><td class="p-3">What the comic is about (min 3 chars)</td></tr>
+            <tr><td class="p-3 border-r-2 border-black">genre</td><td class="p-3 border-r-2 border-black">enum</td><td class="p-3">horror · romance · action · comedy · manga · fantasy · sci-fi · slice-of-life</td></tr>
+            <tr class="ink border-x-0"><td class="p-3 border-r-2 border-black">pages</td><td class="p-3 border-r-2 border-black">1–10</td><td class="p-3">Number of pages</td></tr>
+            <tr><td class="p-3 border-r-2 border-black">style</td><td class="p-3 border-r-2 border-black">enum</td><td class="p-3">manga · western · semi-realistic · chibi</td></tr>
+            <tr class="ink border-x-0"><td class="p-3 border-r-2 border-black">aspectRatio</td><td class="p-3 border-r-2 border-black">enum</td><td class="p-3">3:4 · 9:16 · 1:1 (default 3:4)</td></tr>
+            <tr><td class="p-3 border-r-2 border-black">language</td><td class="p-3 border-r-2 border-black">string</td><td class="p-3">BCP-47, e.g. en · id · ja · zh (default en)</td></tr>
+            <tr class="ink border-x-0"><td class="p-3 border-r-2 border-black">colorMode</td><td class="p-3 border-r-2 border-black">enum</td><td class="p-3">color · bw (default color)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- DELIVERY -->
+    <section class="panel p-6 mb-10" style="background:var(--ink)">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="burst text-base tag-blue" style="background:var(--blue)">OUTPUT</span>
+        <h2 class="display text-3xl" style="color:var(--yellow)">What comes back</h2>
+      </div>
+      <pre class="text-xs sm:text-sm overflow-x-auto p-4 rounded" style="background:#0d1117;color:#9ece6a">{
+  "jobId": "cg_1784...",
+  "summary": "3-page action manga 'Neon Pursuit': 11 panels, 2 characters. Language: en. Color mode: color.",
+  "title": "Neon Pursuit",
+  "coverUrl": "/comics/cg_1784.../cover.png",
+  "pageUrls": ["/comics/.../cover.png", "/comics/.../page-1.png", ...],
+  "pdfUrl": "/comics/.../comic.pdf",
+  "characters": [{ "name": "Kai", "role": "protagonist", "appearance": "young detective, blue spiky hair, tan coat" }],
+  "perPage": [{ "page": 1, "panels": 4, "storyBeat": "The chase begins...",
+    "evidence": { "model": "@cf/black-forest-labs/flux-1-schnell", "layout": "4p" } }],
   "evidence": {
-    "pagesGenerated": 5, "panelsGenerated": 18,
-    "generationTimeSec": 32, "costEstimateUsd": 0.02
+    "model": "@cf/black-forest-labs/flux-1-schnell",
+    "pagesGenerated": 3, "panelsGenerated": 11,
+    "generationTimeSec": 40, "costEstimateUsd": 0.02,
+    "caveat": "AI-generated. Story coherence and visual consistency are heuristic, not guaranteed."
   }
 }</pre>
     </section>
 
-    <section class="bg-[#16213e] brut p-5">
-      <h2 class="text-lg font-bold mb-3">Pricing</h2>
-      <table class="w-full text-sm text-left">
-        <thead>
-          <tr class="border-b border-neutral-600">
-            <th class="py-2 pr-4">Pages</th>
-            <th class="py-2">Price</th>
-          </tr>
-        </thead>
-        <tbody class="text-neutral-300">
-          <tr class="border-b border-neutral-700"><td class="py-2 pr-4">1-3</td><td class="py-2">0.5 USDT</td></tr>
-          <tr class="border-b border-neutral-700"><td class="py-2 pr-4">4-6</td><td class="py-2">1.0 USDT</td></tr>
-          <tr><td class="py-2 pr-4">7-10</td><td class="py-2">1.5 USDT</td></tr>
-        </tbody>
-      </table>
-      <p class="mt-3 text-sm text-neutral-400">
-        Paid via x402 v2 on X Layer (USDT0). No free quota.
-      </p>
+    <!-- PRICING -->
+    <section class="mb-12">
+      <div class="text-center mb-6">
+        <h2 class="display text-5xl outline-title">PRICING</h2>
+        <p class="font-bold mt-2">Paid via x402 v2 on X Layer (USDT0). No free quota.</p>
+      </div>
+      <div class="grid sm:grid-cols-3 gap-6">
+        <div class="panel bg-white p-6 text-center">
+          <div class="burst tag-yellow mb-3" style="background:var(--yellow);color:var(--ink)">1–3 PAGES</div>
+          <div class="display text-5xl">0.5</div>
+          <div class="font-bold">USDT</div>
+        </div>
+        <div class="panel bg-white p-6 text-center" style="transform:scale(1.05)">
+          <div class="burst mb-3">4–6 PAGES</div>
+          <div class="display text-5xl">1.0</div>
+          <div class="font-bold">USDT</div>
+        </div>
+        <div class="panel bg-white p-6 text-center">
+          <div class="burst tag-blue mb-3" style="background:var(--blue)">7–10 PAGES</div>
+          <div class="display text-5xl">1.5</div>
+          <div class="font-bold">USDT</div>
+        </div>
+      </div>
     </section>
+
+    <!-- HONESTY -->
+    <section class="panel p-6 mb-10 bg-white">
+      <h2 class="display text-3xl mb-4">Honest by design</h2>
+      <ul class="space-y-2 font-bold">
+        <li>✔ Evidence travels with every comic — model, panels, time, and caveat.</li>
+        <li>✔ Counts are real — pages and panels reflect what was actually generated.</li>
+        <li>✔ No fabricated characters — every character is defined in the storyboard.</li>
+        <li>✔ The fee matches reality — priced on actual LLM + image-gen cost.</li>
+      </ul>
+    </section>
+
+    <footer class="text-center font-bold">
+      <div class="display text-2xl">BOREDCOMIC</div>
+      <p>A2MCP Agent Service Provider · <code>boredcomic.web.id/mcp</code></p>
+    </footer>
   </div>
 </body>
 </html>
