@@ -5,6 +5,8 @@ import type { GenerateComicInput, Storyboard, PageSpec } from "./types.js";
 const client = new OpenAI({
   baseURL: config.sumopodBaseUrl,
   apiKey: config.sumopodApiKey,
+  timeout: 90_000,
+  maxRetries: 2,
 });
 
 const WRITER_PROMPT = `You are a professional comic writer and director. Create a compelling, visually rich storyboard.
@@ -90,23 +92,17 @@ export function parseStoryboard(json: string, expectedPages: number): Storyboard
     throw new Error("Writer returned invalid storyboard: missing title or pages");
   }
 
-  if (parsed.pages.length !== expectedPages) {
+  // Never fabricate duplicate pages. If the LLM returned more than asked,
+  // truncate; if fewer, accept the actual count and let the delivery report it
+  // honestly rather than padding with copied content.
+  if (parsed.pages.length > expectedPages) {
     parsed.pages = parsed.pages.slice(0, expectedPages);
-    while (parsed.pages.length < expectedPages) {
-      const last = parsed.pages[parsed.pages.length - 1];
-      if (last) {
-        parsed.pages.push({
-          page: parsed.pages.length + 1,
-          panels: last.panels,
-          storyBeat: "Continuation...",
-          panelDescriptions: last.panelDescriptions.map((pd) => ({
-            ...pd,
-            scene: pd.scene,
-          })),
-        });
-      }
-    }
   }
+
+  // Renumber pages sequentially so downstream page indices stay consistent.
+  parsed.pages.forEach((p, i) => {
+    p.page = i + 1;
+  });
 
   return parsed;
 }

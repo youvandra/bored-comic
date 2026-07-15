@@ -22,19 +22,19 @@ test("parseStoryboard extracts title, characters, and pages", async () => {
         },
       ],
     }),
-    3,
+    1,
   );
 
   assert.equal(result.title, "Test Comic");
   assert.equal(result.characters.length, 1);
-  assert.equal(result.pages.length, 3);
+  assert.equal(result.pages.length, 1);
   assert.equal(result.pages[0].panels, 3);
   assert.equal(result.pages[0].panelDescriptions.length, 3);
   assert.equal(result.pages[0].panelDescriptions[0].cameraAngle, "wide");
   assert.equal(result.pages[0].panelDescriptions[2].dialogue, "Take that!");
 });
 
-test("parseStoryboard pads pages when input is shorter than expected", async () => {
+test("parseStoryboard accepts fewer pages without fabricating duplicates", async () => {
   const { parseStoryboard } = await import("./writer.js");
 
   const result = parseStoryboard(
@@ -57,10 +57,10 @@ test("parseStoryboard pads pages when input is shorter than expected", async () 
     5,
   );
 
-  assert.equal(result.pages.length, 5);
-  assert.equal(result.pages[1].page, 2);
-  assert.equal(result.pages[1].storyBeat, "Continuation...");
-  assert.equal(result.pages[4].page, 5);
+  // Never pad with copied content — the actual page count is preserved and reported honestly.
+  assert.equal(result.pages.length, 1);
+  assert.equal(result.pages[0].page, 1);
+  assert.equal(result.pages[0].storyBeat, "Start");
 });
 
 test("parseStoryboard truncates pages when input is longer", async () => {
