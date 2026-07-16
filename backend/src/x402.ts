@@ -15,18 +15,12 @@ const isEnabled = () => config.x402Mode !== "off" && !!config.x402PayTo;
 
 type Handler = (req: Request, res: Response, next: NextFunction) => unknown;
 
-// Tiered pricing by page count (matches PLAN.md): 1-3 / 4-6 / 7-10 pages.
-// Multiplier is applied to the configured base price.
-function tierMultiplier(pages: number): number {
-  if (pages >= 7) return 3;
-  if (pages >= 4) return 2;
-  return 1;
-}
-
-export function priceForPages(pages: number): string {
+// Flat pricing: every paid tool call costs the configured base price,
+// regardless of page count. The OKX.AI marketplace registers one fixed fee
+// per service, so the on-chain challenge must always match that fee.
+export function priceForPages(_pages: number): string {
   const base = Number(config.x402PriceUsd) || 0;
-  const price = base * tierMultiplier(pages || 1);
-  return price.toFixed(2);
+  return base.toFixed(2);
 }
 
 // Per-tool pricing. generate_comic scales with page count; revise_page and
@@ -144,8 +138,16 @@ export function x402Gate(req: Request, res: Response, next: NextFunction): void 
 
   const body = req.body as { method?: string; params?: { name?: string; arguments?: ToolArgs } } | undefined;
 
+  // Bare request (no JSON-RPC method) — a marketplace validator or plain curl
+  // probing the endpoint. Answer with the x402 challenge so the probe sees a
+  // compliant paid endpoint instead of an MCP protocol error.
+  if (typeof body?.method !== "string") {
+    send402Challenge(req, res);
+    return;
+  }
+
   // Discovery, introspection, and store lookups stay free.
-  if (body?.method !== "tools/call") return next();
+  if (body.method !== "tools/call") return next();
   const tool = body?.params?.name ?? "";
   const price = priceForTool(tool, body?.params?.arguments as { pages?: unknown });
   if (price === null) return next();
@@ -176,7 +178,15 @@ export function x402Gate(req: Request, res: Response, next: NextFunction): void 
   }
 
   // No payment proof — return a proper x402 v2 challenge with PAYMENT-REQUIRED header
-  const amount = Math.round(Number(price) * 1000000).toString();
+  send402Challenge(req, res);
+}
+
+// Build and send the x402 v2 challenge. Also used for bare (non-JSON-RPC)
+// requests to /mcp so marketplace validators probing the endpoint without an
+// MCP body still see a compliant HTTP 402. Pricing is flat, so the challenge
+// amount is the same for every paid call.
+export function send402Challenge(req: Request, res: Response): void {
+  const amount = Math.round(Number(priceForPages(1)) * 1000000).toString();
   const challenge = {
     x402Version: 2,
     resource: {
@@ -205,11 +215,7 @@ export function x402Info(): Record<string, unknown> {
     pricing: {
       basePerToolCall: `$${config.x402PriceUsd}`,
       tools: {
-        generate_comic: {
-          "1-3 pages": `$${priceForPages(1)}`,
-          "4-6 pages": `$${priceForPages(4)}`,
-          "7-10 pages": `$${priceForPages(7)}`,
-        },
+        generate_comic: `$${priceForPages(1)}`,
         revise_page: `$${priceForPages(1)}`,
         create_character: `$${priceForPages(1)}`,
       },

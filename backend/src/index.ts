@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { config } from "./config.js";
 import { buildMcpServer } from "./mcp.js";
-import { x402Gate, x402Info } from "./x402.js";
+import { x402Gate, x402Info, send402Challenge } from "./x402.js";
 import { resolveComicPath, startCleanup } from "./storage.js";
 import { getJob, getViews, incrementViews, resolveCharacterImagePath } from "./store.js";
 import { rateLimit } from "./ratelimit.js";
@@ -42,6 +42,12 @@ app.post("/mcp", rateLimit, x402Gate, async (req, res) => {
     console.error("MCP error:", err);
     if (!res.headersSent) res.status(500).json({ error: "MCP request failed" });
   }
+});
+
+// Marketplace validators probe the endpoint with a bare GET and expect the
+// x402 challenge. Real MCP clients always POST JSON-RPC.
+app.get("/mcp", (req, res) => {
+  send402Challenge(req, res);
 });
 
 app.all("/mcp", (_req, res) => {
