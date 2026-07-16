@@ -50,6 +50,12 @@ export const config = {
   // HMAC key for signed delivery receipts. Unset → receipts are unsigned.
   receiptSecret: process.env.RECEIPT_SECRET || "",
 
+  // Public origin for absolute URLs in deliveries (readerUrl). Empty → relative.
+  publicBaseUrl: (process.env.PUBLIC_BASE_URL || "").replace(/\/$/, ""),
+  // Vision QA: "basic" grades every delivered page with a vision model and
+  // picks the better of two cover candidates; "off" disables both.
+  qaMode: (process.env.QA_MODE || "basic") as "off" | "basic",
+
   x402Mode: (process.env.X402_MODE || "off") as "off" | "demo" | "on",
   x402PayTo: process.env.X402_PAY_TO || "",
   x402PriceUsd: process.env.X402_PRICE_USD || "0.05",

@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { runPipeline, revisePage } from "./pipeline.js";
 import { createCharacter } from "./character.js";
-import { collectionCount, getCharacter, getJob, getSeries, MAX_COLLECTION_SIZE, newId, saveSeries } from "./store.js";
+import { collectionCount, getCharacter, getJob, getSeries, getViews, MAX_COLLECTION_SIZE, newId, saveSeries } from "./store.js";
 import { config } from "./config.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -26,8 +26,8 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
     { name: "BoredComic", version: "0.2.0" },
     {
       instructions:
-        "BoredComic — AI comic generator with persistent characters and series. " +
-        "generate_comic (paid): prompt in, complete comic out — per-page images, per-panel images with alt text, PDF, CBZ, webtoon strip, plus decision-grade metadata, SHA-256 integrity hashes, a signed delivery receipt, and an explicit commercial license. " +
+        "BoredComic — AI comic generator with persistent characters, series, and a hosted reader. " +
+        "generate_comic (paid): prompt in, complete comic out — per-page images, per-panel images with alt text, PDF, CBZ, webtoon strip, a shareable hosted reader link (readerUrl, with OG preview tags), a vision-model quality report on every page, plus decision-grade metadata, SHA-256 integrity hashes, a signed delivery receipt, and an explicit commercial license. " +
         "create_character (paid): register a character once — canonical appearance + stable seed + reference sheet — then reuse it across comics via characterIds for consistent appearance. " +
         "create_series (free): start a series; each generate_comic with the seriesId continues the story from the previous episode's ending. " +
         "revise_page (paid): change one page of a delivered comic ('make panel 2 more dramatic', 'change the dialogue') without regenerating the whole comic. " +
@@ -113,7 +113,7 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
       title: "Generate comic",
       annotations: { readOnlyHint: false, openWorldHint: true },
       description:
-        "Generate a complete comic from a natural-language prompt. Returns per-page images, per-panel images with alt text, a combined PDF, a CBZ archive, structured metadata (characters, panel count, story arc), SHA-256 integrity hashes, a signed delivery receipt, and an explicit commercial-use license. Pass characterIds (from create_character) to star registered characters with consistent appearance. Pass seriesId (from create_series) to continue an ongoing story. layoutMode 'webtoon' produces a vertical-scroll strip.",
+        "Generate a complete comic from a natural-language prompt. Returns per-page images, per-panel images with alt text, a combined PDF, a CBZ archive, a shareable hosted reader link (readerUrl — send this to humans; link previews show the cover), a vision-model quality report grading every page (evidence.qualityReport), structured metadata (characters, panel count, story arc), SHA-256 integrity hashes, a signed delivery receipt, and an explicit commercial-use license. Pass characterIds (from create_character) to star registered characters with consistent appearance. Pass seriesId (from create_series) to continue an ongoing story. layoutMode 'webtoon' produces a vertical-scroll strip.",
       inputSchema: {
         prompt: z.string().min(3).describe("What the comic should be about"),
         genre: z.enum(GENRES).optional().describe("Genre of the comic"),
@@ -215,6 +215,7 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
       const filesOnDisk = fs.existsSync(path.join(config.comicDir, input.jobId, "cover.png"));
       return jsonResult({
         ...job.delivery,
+        views: getViews(input.jobId),
         filesAvailable: filesOnDisk,
         ...(filesOnDisk ? {} : { filesNote: "Comic files have expired from storage (24h TTL). Metadata and integrity hashes remain valid; regenerate to get new files." }),
       });
@@ -288,7 +289,8 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
     {
       title: "Get a series",
       annotations: { readOnlyHint: true },
-      description: "Free tool: look up a series by ID — defaults, fixed cast, and the full episode history with per-episode ending summaries. Always free.",
+      description:
+        "Free tool: look up a series by ID — defaults, fixed cast, and the full episode history with per-episode ending summaries AND reader view counts. Views come from the hosted web reader (readerUrl in every delivery): share the link, then read back which episodes your audience actually opened, and write the next one accordingly. Always free.",
       inputSchema: {
         seriesId: z.string().describe("Series ID from create_series"),
       },
@@ -296,7 +298,11 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
     async (input) => {
       const series = getSeries(input.seriesId);
       if (!series) return jsonResult({ error: `Unknown seriesId: ${input.seriesId}` }, true);
-      return jsonResult(series);
+      return jsonResult({
+        ...series,
+        episodes: series.episodes.map((e) => ({ ...e, views: getViews(e.jobId) })),
+        totalViews: series.episodes.reduce((s, e) => s + getViews(e.jobId), 0),
+      });
     },
   );
 

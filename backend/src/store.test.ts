@@ -142,6 +142,19 @@ test("collectionCount counts stored records", async () => {
   assert.equal(collectionCount("series", dir), 2);
 });
 
+test("incrementViews counts per job and getViews reads back", async () => {
+  const { incrementViews, getViews } = await import("./store.js");
+  const dir = tmpDir();
+
+  assert.equal(getViews("cg_v1", dir), 0);
+  assert.equal(incrementViews("cg_v1", dir), 1);
+  assert.equal(incrementViews("cg_v1", dir), 2);
+  assert.equal(incrementViews("cg_v2", dir), 1);
+  assert.equal(getViews("cg_v1", dir), 2);
+  // Malformed ids never write.
+  assert.equal(incrementViews("../evil", dir), 0);
+});
+
 test("resolveCharacterImagePath rejects traversal and unknown files", async () => {
   const { resolveCharacterImagePath, characterImageDir } = await import("./store.js");
   const dir = tmpDir();

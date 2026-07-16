@@ -119,6 +119,34 @@ function pruneJobs(all: Record<string, StoredJob>): void {
   }
 }
 
+// ——— Reader view analytics ———
+
+// View counts per jobId, incremented by the hosted reader. This is the
+// audience feedback loop: get_series surfaces per-episode views so an agent
+// can see which episodes land and write the next one accordingly. Kept in its
+// own collection so counts survive job pruning.
+const MAX_VIEW_ENTRIES = 20_000;
+
+export function incrementViews(jobId: string, baseDir?: string): number {
+  if (!isValidId(jobId)) return 0;
+  const all = load<number>("views", baseDir);
+  const next = (all[jobId] ?? 0) + 1;
+  all[jobId] = next;
+  // Cheap overflow guard: drop the lowest-viewed entries if the map balloons.
+  const keys = Object.keys(all);
+  if (keys.length > MAX_VIEW_ENTRIES) {
+    keys.sort((a, b) => all[a] - all[b]);
+    for (const k of keys.slice(0, keys.length - MAX_VIEW_ENTRIES)) delete all[k];
+  }
+  save("views", all, baseDir);
+  return next;
+}
+
+export function getViews(jobId: string, baseDir?: string): number {
+  if (!isValidId(jobId)) return 0;
+  return load<number>("views", baseDir)[jobId] ?? 0;
+}
+
 // ——— Character reference images ———
 
 // Character sheets live under DATA_DIR/characters/<id>/ — persistent, unlike

@@ -12,6 +12,9 @@ import { buildPdf } from "./assembler.js";
 import { buildCbz } from "./cbz.js";
 import { buildIntegrity, buildLicense, buildReceipt } from "./receipt.js";
 import { appendEpisode, getCharacters, getJob, getSeries, saveJob } from "./store.js";
+import { pickBestCover, qaPage, visionEnabled, type PageQaResult } from "./vision.js";
+import { readerUrlFor } from "./reader.js";
+import type { QualityReport } from "./types.js";
 
 export interface PipelineHooks {
   setStatus(status: string): void;
@@ -259,6 +262,29 @@ export async function runPipeline(
     stripUrl = await makeWebtoonStrip(workDir, jobId, pageResults.map((p) => p.page));
   }
 
+  // Vision QA: an independent model grades every delivered page. Best-effort;
+  // a missing report never blocks an already-paid delivery.
+  let qualityReport: QualityReport | undefined;
+  if (visionEnabled()) {
+    hooks.setStatus("quality-check");
+    const characterHints = storyboard.characters
+      .map((c) => `${c.name} (${c.appearance.slice(0, 120)})`)
+      .join("; ") || "no named characters";
+    const graded: { page: number; score: number; notes: string }[] = [];
+    for (const p of pageResults) {
+      const qa: PageQaResult | null = await qaPage(join(workDir, `page-${p.page}.png`), characterHints);
+      if (qa) graded.push({ page: p.page, score: qa.score, notes: qa.notes });
+    }
+    if (graded.length > 0) {
+      qualityReport = {
+        model: "@cf/llava-hf/llava-1.5-7b-hf",
+        averageScore: Math.round((graded.reduce((s, g) => s + g.score, 0) / graded.length) * 10) / 10,
+        pages: graded,
+        caveat: "Automated vision-model review — an independent signal, not a guarantee. Scores are 1-10.",
+      };
+    }
+  }
+
   const elapsedSec = Math.round((Date.now() - startTime) / 1000);
 
   // Honest counts: derived from what was actually generated.
@@ -304,6 +330,7 @@ export async function runPipeline(
     pdfUrl,
     cbzUrl,
     stripUrl,
+    readerUrl: readerUrlFor(jobId),
     perPage: pageResults,
     integrity,
     receipt,
@@ -316,6 +343,7 @@ export async function runPipeline(
       costEstimateUsd: estimateCost(actualPages, totalPanels),
       language: lang,
       colorMode,
+      qualityReport,
       caveat: "Comic is AI-generated. Story coherence and visual consistency are heuristic, not guaranteed.",
     },
   };
@@ -841,7 +869,22 @@ async function assembleCover(params: {
   const prompt = `dramatic comic book cover key art, epic dynamic hero composition, ${storyboard.synopsis}. Main characters: ${charRefs}. ${styleTag(style)}${bwTag(colorMode)}. highly detailed, bold linework, poster-worthy.${NO_TEXT_TAG}`;
 
   const hero = await generatePanel({ prompt, seed, pageNumber: 0, panelIndex: 0, workDir, jobId });
-  const bg = await sharp(hero.path)
+
+  // The cover is the face of every delivery and every shared reader link, so
+  // it gets a best-of-2: a second candidate on a different seed, judged by the
+  // vision model. Best-effort — any failure keeps the first candidate.
+  let heroPath = hero.path;
+  if (visionEnabled()) {
+    try {
+      const alt = await generatePanel({ prompt, seed: (seed + 7919) >>> 0, pageNumber: 0, panelIndex: 1, workDir, jobId });
+      const { winner } = await pickBestCover(hero.path, alt.path, storyboard.synopsis);
+      heroPath = winner;
+    } catch {
+      heroPath = hero.path;
+    }
+  }
+
+  const bg = await sharp(heroPath)
     .resize(pageW, pageH, { fit: "cover", position: sharp.strategy.attention })
     .png()
     .toBuffer();

@@ -135,6 +135,22 @@ export interface PageResult {
   evidence: PageEvidence;
 }
 
+// Self-grading: a vision model inspects every delivered page and reports what
+// it sees, so the paying agent gets an independent quality signal it can act
+// on (accept, retry, revise) without running its own image analysis.
+export interface PageQuality {
+  page: number;
+  score: number; // 1-10
+  notes: string;
+}
+
+export interface QualityReport {
+  model: string;
+  averageScore: number;
+  pages: PageQuality[];
+  caveat: string;
+}
+
 export interface ComicEvidence {
   model: string;
   pagesGenerated: number;
@@ -143,6 +159,7 @@ export interface ComicEvidence {
   costEstimateUsd: number;
   language: string;
   colorMode: ColorMode;
+  qualityReport?: QualityReport;
   caveat: string;
 }
 
@@ -195,6 +212,7 @@ export interface ComicDelivery {
   pdfUrl: string;
   cbzUrl: string;
   stripUrl?: string; // webtoon mode: all pages as one vertical strip
+  readerUrl: string; // hosted swipeable web reader for this comic
   perPage: PageResult[];
   integrity: DeliveryIntegrity;
   receipt: DeliveryReceipt;

@@ -6,8 +6,10 @@ import { config } from "./config.js";
 import { buildMcpServer } from "./mcp.js";
 import { x402Gate, x402Info } from "./x402.js";
 import { resolveComicPath, startCleanup } from "./storage.js";
-import { resolveCharacterImagePath } from "./store.js";
+import { getJob, getViews, incrementViews, resolveCharacterImagePath } from "./store.js";
 import { rateLimit } from "./ratelimit.js";
+import { renderReaderPage } from "./reader.js";
+import fs from "node:fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
@@ -52,6 +54,29 @@ app.get("/comics/:jobId/:file", (req, res) => {
   return res.sendFile(filePath, (err) => {
     if (err && !res.headersSent) res.status(404).json({ error: "not found" });
   });
+});
+
+// Hosted reader: shareable page per comic with server-rendered OG tags.
+// Every human view increments the job's view counter — the audience signal
+// that get_series feeds back to the generating agent.
+app.get("/read/:jobId", (req, res) => {
+  const job = getJob(req.params.jobId);
+  if (!job) {
+    return res.status(404).send(
+      "<h1 style=\"font-family:sans-serif;text-align:center;margin-top:20vh\">Comic not found — it may have expired.</h1>",
+    );
+  }
+  const views = incrementViews(job.jobId);
+  const filesAvailable = fs.existsSync(path.join(config.comicDir, job.jobId, "cover.png"));
+  return res.type("html").send(renderReaderPage({ job, views, filesAvailable }));
+});
+
+// JSON twin of the reader (and of the get_job MCP tool) for programmatic use.
+app.get("/api/job/:jobId", (req, res) => {
+  const job = getJob(req.params.jobId);
+  if (!job || !job.delivery) return res.status(404).json({ error: "unknown or expired jobId" });
+  const filesAvailable = fs.existsSync(path.join(config.comicDir, job.jobId, "cover.png"));
+  return res.json({ ...job.delivery, views: getViews(job.jobId), filesAvailable });
 });
 
 // Character reference sheets live in the persistent data dir, not the
