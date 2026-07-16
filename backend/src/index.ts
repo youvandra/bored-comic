@@ -7,6 +7,7 @@ import { buildMcpServer } from "./mcp.js";
 import { x402Gate, x402Info } from "./x402.js";
 import { resolveComicPath, startCleanup } from "./storage.js";
 import { resolveCharacterImagePath } from "./store.js";
+import { rateLimit } from "./ratelimit.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
@@ -25,7 +26,7 @@ app.get("/x402/info", (_req, res) => {
   res.json(x402Info());
 });
 
-app.post("/mcp", x402Gate, async (req, res) => {
+app.post("/mcp", rateLimit, x402Gate, async (req, res) => {
   const server = buildMcpServer(req.ip);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on("close", () => {

@@ -8,6 +8,7 @@
   "genre": "action",
   "language": "en",
   "colorMode": "color",
+  "layoutMode": "page",
   "characters": [
     {
       "name": "Mia",
@@ -32,12 +33,42 @@
     "/comics/cg_example/page-2.png"
   ],
   "pdfUrl": "/comics/cg_example/comic.pdf",
+  "cbzUrl": "/comics/cg_example/comic.cbz",
   "perPage": [
     {
       "page": 1,
       "panels": 4,
       "storyBeat": "In a city that never stops moving, every second counts...",
       "imageUrl": "/comics/cg_example/page-1.png",
+      "panelDetails": [
+        {
+          "panel": 1,
+          "imageUrl": "/comics/cg_example/panel-1-0.png",
+          "altText": "Wide shot of a bright futuristic city at dawn, elevated highways weaving between glass towers. Characters: Mia, Bob (B-0B).",
+          "cameraAngle": "wide shot"
+        },
+        {
+          "panel": 2,
+          "imageUrl": "/comics/cg_example/panel-1-1.png",
+          "altText": "Mia straps a glowing package onto Bob's back, determined grin. Characters: Mia, Bob (B-0B). Dialogue: \"COME ON, BOB! WE CAN'T BE LATE!\"",
+          "dialogue": "COME ON, BOB! WE CAN'T BE LATE!",
+          "cameraAngle": "medium shot"
+        },
+        {
+          "panel": 3,
+          "imageUrl": "/comics/cg_example/panel-1-2.png",
+          "altText": "Bob speeds down a ramp on his single wheel, sparks flying. Characters: Bob (B-0B). Sound effect: VROOM.",
+          "sfx": "VROOM",
+          "cameraAngle": "low angle"
+        },
+        {
+          "panel": 4,
+          "imageUrl": "/comics/cg_example/panel-1-3.png",
+          "altText": "Bob wobbles and nearly drops the package off a bridge, Mia lunging after it. Characters: Mia, Bob (B-0B). Sound effect: WHOOPS!",
+          "sfx": "WHOOPS!",
+          "cameraAngle": "dynamic angle"
+        }
+      ],
       "evidence": {
         "model": "@cf/black-forest-labs/flux-1-schnell",
         "promptChars": 2773,
@@ -51,6 +82,35 @@
       "panels": 4,
       "storyBeat": "But even the clumsiest robot can surprise you...",
       "imageUrl": "/comics/cg_example/page-2.png",
+      "panelDetails": [
+        {
+          "panel": 1,
+          "imageUrl": "/comics/cg_example/panel-2-0.png",
+          "altText": "The rival courier's hoverbike cuts across Mia and Bob's path. Characters: Rival Courier. Dialogue: \"TOO SLOW, JUNKPILE!\"",
+          "dialogue": "TOO SLOW, JUNKPILE!",
+          "cameraAngle": "over-shoulder"
+        },
+        {
+          "panel": 2,
+          "imageUrl": "/comics/cg_example/panel-2-1.png",
+          "altText": "Bob fires his grappling-hook arm at a passing sky-tram. Characters: Bob (B-0B). Sound effect: THWIP.",
+          "sfx": "THWIP",
+          "cameraAngle": "dynamic angle"
+        },
+        {
+          "panel": 3,
+          "imageUrl": "/comics/cg_example/panel-2-2.png",
+          "altText": "Mia and Bob swing over the rival, city lights streaking below. Characters: Mia, Bob (B-0B). Dialogue: \"BOB, YOU GENIUS!\"",
+          "dialogue": "BOB, YOU GENIUS!",
+          "cameraAngle": "wide shot"
+        },
+        {
+          "panel": 4,
+          "imageUrl": "/comics/cg_example/panel-2-3.png",
+          "altText": "Splash panel: the package delivered at the doorstep as the sun rises, Mia and Bob triumphant. Characters: Mia, Bob (B-0B).",
+          "cameraAngle": "hero shot"
+        }
+      ],
       "evidence": {
         "model": "@cf/black-forest-labs/flux-1-schnell",
         "promptChars": 3079,
@@ -60,6 +120,34 @@
       }
     }
   ],
+  "integrity": {
+    "algorithm": "sha256",
+    "files": {
+      "cover.png": "cfb386662888ef3e852a1bffd859756fef9e98a4e477d6812a3bc9fd294ddb05",
+      "page-1.png": "7893e01fb376078720c2f157f0a7e482d688ff31dc162ed36db27e1960dfb50b",
+      "page-2.png": "2f90865bb78089a01dca5a09fd1c0a0877a4ee12c15d5d43acbf514f4cf50ccd",
+      "comic.pdf": "<sha256 of the delivered PDF>",
+      "comic.cbz": "<sha256 of the delivered CBZ>"
+    }
+  },
+  "receipt": {
+    "jobId": "cg_example",
+    "issuedAt": "2026-07-16T08:00:00.000Z",
+    "payloadSha256": "<sha256 over { jobId, files }>",
+    "algorithm": "HMAC-SHA256",
+    "signature": "<HMAC-SHA256 over `jobId.payloadSha256.issuedAt`>",
+    "note": "HMAC-SHA256 over `jobId.payloadSha256.issuedAt`. Present this receipt to the operator to verify delivery."
+  },
+  "license": {
+    "usage": "The payer receives a worldwide, non-exclusive right to use, modify, distribute, and commercially exploit the generated comic.",
+    "attribution": "Not required.",
+    "aiDisclosure": "All images and story text are AI-generated. Some jurisdictions require AI disclosure for published content.",
+    "provenance": {
+      "imageModel": "@cf/black-forest-labs/flux-1-schnell",
+      "seed": 483920175,
+      "promptSha256": "c137036b52f2b6ac30f43a7841cb045274213dc96f16b4c938c48a586930bad9"
+    }
+  },
   "evidence": {
     "model": "@cf/black-forest-labs/flux-1-schnell",
     "pagesGenerated": 2,

@@ -44,6 +44,14 @@ export function isValidId(id: string): boolean {
   return /^[A-Za-z0-9_-]+$/.test(id);
 }
 
+// Hard cap per collection — protects the JSON store (and the disk) from
+// unbounded growth, since create_series is free and unmetered.
+export const MAX_COLLECTION_SIZE = 5000;
+
+export function collectionCount(name: "characters" | "series" | "jobs", baseDir?: string): number {
+  return Object.keys(load(name, baseDir)).length;
+}
+
 // ——— Characters ———
 
 export function saveCharacter(char: StoredCharacter, baseDir?: string): void {

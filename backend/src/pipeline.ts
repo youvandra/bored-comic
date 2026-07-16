@@ -265,22 +265,7 @@ export async function runPipeline(
   const actualPages = pageResults.length;
   const totalPanels = pageResults.reduce((s, p) => s + p.panels, 0);
 
-  // Persist everything revise_page needs, then log the episode if in a series.
   const now = new Date().toISOString();
-  saveJob({
-    jobId,
-    input: { ...input, characterIds },
-    storyboard,
-    seed: jobSeed,
-    pageW,
-    pageH,
-    layoutMode,
-    characterIds,
-    seriesId: input.seriesId,
-    createdAt: now,
-    updatedAt: now,
-  });
-
   let episode: number | undefined;
   if (series) {
     const ep = appendEpisode(series.seriesId, {
@@ -299,7 +284,7 @@ export async function runPipeline(
 
   const summary = `${actualPages}-page ${input.genre || "story"} ${style} '${storyboard.title}': ${totalPanels} panels, ${storyboard.characters.length} characters. Generated in ${elapsedSec}s. Language: ${lang}. Color mode: ${colorMode}.${layoutMode === "webtoon" ? " Layout: webtoon (vertical strip)." : ""}${episode ? ` Episode ${episode} of series ${input.seriesId}.` : ""}`;
 
-  return {
+  const delivery: ComicDelivery = {
     jobId,
     summary,
     title: storyboard.title,
@@ -334,6 +319,25 @@ export async function runPipeline(
       caveat: "Comic is AI-generated. Story coherence and visual consistency are heuristic, not guaranteed.",
     },
   };
+
+  // Persist everything revise_page and get_job need. The stored delivery is
+  // the recovery path for a paid call whose response never reached the payer.
+  saveJob({
+    jobId,
+    input: { ...input, characterIds },
+    storyboard,
+    seed: jobSeed,
+    pageW,
+    pageH,
+    layoutMode,
+    characterIds,
+    seriesId: input.seriesId,
+    delivery,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return delivery;
 }
 
 // All rendered pages stacked into one tall image — the format webtoon
@@ -432,10 +436,8 @@ export async function revisePage(
     characterCaveat: "Revised page — regenerated with the job's original seed and cast.",
   });
 
-  // Persist the revision so further revisions build on it.
   job.storyboard.pages = job.storyboard.pages.map((p) => (p.page === pageNumber ? revised : p));
   job.updatedAt = new Date().toISOString();
-  saveJob(job);
 
   hooks.setStatus("assembling");
   // PDF/CBZ can only be rebuilt while every other page image is still on disk.
@@ -452,6 +454,15 @@ export async function revisePage(
 
   const integrity = buildIntegrity(workDir, deliverableFiles(job.storyboard, job.layoutMode));
   const receipt = buildReceipt(jobId, integrity);
+
+  // Keep the stored delivery (what get_job serves) in sync with the revision.
+  if (job.delivery) {
+    job.delivery.perPage = job.delivery.perPage.map((p) => (p.page === pageNumber ? pageResult : p));
+    job.delivery.totalPanels = job.delivery.perPage.reduce((s, p) => s + p.panels, 0);
+    job.delivery.integrity = integrity;
+    job.delivery.receipt = receipt;
+  }
+  saveJob(job);
 
   return {
     jobId,

@@ -31,7 +31,7 @@ export function priceForPages(pages: number): string {
 
 // Per-tool pricing. generate_comic scales with page count; revise_page and
 // create_character are single generations, so they cost the base rate.
-const FREE_TOOLS = new Set(["get_quota", "clarify_comic", "get_character", "get_series", "create_series"]);
+const FREE_TOOLS = new Set(["get_quota", "clarify_comic", "get_character", "get_series", "create_series", "get_job"]);
 const PAID_TOOLS = new Set(["generate_comic", "revise_page", "create_character"]);
 
 export function priceForTool(tool: string, args: { pages?: unknown } | undefined): string | null {
@@ -220,7 +220,7 @@ export function x402Info(): Record<string, unknown> {
     },
     settlement: "on-chain, settled by the OKX facilitator (@okxweb3/x402-express)",
     metered: ["generate_comic", "revise_page", "create_character"],
-    free: ["initialize", "tools/list", "get_quota", "clarify_comic", "get_character", "get_series", "create_series"],
+    free: ["initialize", "tools/list", "get_quota", "clarify_comic", "get_character", "get_series", "create_series", "get_job"],
     note: "No free daily quota — every metered tools/call requires payment.",
   };
 }

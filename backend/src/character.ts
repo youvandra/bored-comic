@@ -6,7 +6,7 @@ import { mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 import type { ComicStyle, StoredCharacter } from "./types.js";
 import { generatePanel } from "./illustrator.js";
-import { characterImageDir, newId, saveCharacter } from "./store.js";
+import { characterImageDir, collectionCount, MAX_COLLECTION_SIZE, newId, saveCharacter } from "./store.js";
 import { styleTag, NO_TEXT_TAG } from "./pipeline.js";
 
 export interface CreateCharacterInput {
@@ -21,6 +21,9 @@ export function buildCharacterSheetPrompt(appearance: string, style: string): st
 }
 
 export async function createCharacter(input: CreateCharacterInput): Promise<StoredCharacter> {
+  if (collectionCount("characters") >= MAX_COLLECTION_SIZE) {
+    throw new Error("Character store is at capacity. Contact the operator.");
+  }
   const characterId = newId("ch");
   const style: ComicStyle = input.style || "manga";
   const seed = Math.floor(Math.random() * 1_000_000_000);

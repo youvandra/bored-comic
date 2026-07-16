@@ -110,6 +110,38 @@ test("saveJob/getJob round-trips; expired jobs return null", async () => {
   assert.equal(getJob("cg_old", dir), null);
 });
 
+test("saveJob persists the delivery payload for get_job recovery", async () => {
+  const { saveJob, getJob } = await import("./store.js");
+  const dir = tmpDir();
+  const now = new Date().toISOString();
+  saveJob({
+    jobId: "cg_delivery",
+    input: { prompt: "test", pages: 1 },
+    storyboard: { title: "T", synopsis: "s", characters: [], pages: [] },
+    seed: 7,
+    pageW: 800,
+    pageH: 1067,
+    layoutMode: "page" as const,
+    characterIds: [],
+    delivery: { jobId: "cg_delivery", title: "T", summary: "1-page test" } as never,
+    createdAt: now,
+    updatedAt: now,
+  }, dir);
+
+  const job = getJob("cg_delivery", dir);
+  assert.equal((job?.delivery as { summary?: string } | undefined)?.summary, "1-page test");
+});
+
+test("collectionCount counts stored records", async () => {
+  const { saveSeries, collectionCount } = await import("./store.js");
+  const dir = tmpDir();
+  assert.equal(collectionCount("series", dir), 0);
+  const now = new Date().toISOString();
+  saveSeries({ seriesId: "sr_1", title: "A", characterIds: [], episodes: [], createdAt: now, updatedAt: now }, dir);
+  saveSeries({ seriesId: "sr_2", title: "B", characterIds: [], episodes: [], createdAt: now, updatedAt: now }, dir);
+  assert.equal(collectionCount("series", dir), 2);
+});
+
 test("resolveCharacterImagePath rejects traversal and unknown files", async () => {
   const { resolveCharacterImagePath, characterImageDir } = await import("./store.js");
   const dir = tmpDir();

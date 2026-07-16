@@ -32,7 +32,7 @@ Notice what the renderer adds on top of the AI art: a **cream narration caption*
 
 ### Delivery payload
 
-The tool returns structured JSON. This is the actual response for the comic above (see [`examples/example-delivery.json`](examples/example-delivery.json)):
+The tool returns structured JSON. This is the delivery payload for the comic above, trimmed — see [`examples/example-delivery.json`](examples/example-delivery.json) for the full shape (the PNG hashes there are real and verifiable against the example images):
 
 ```jsonc
 {
@@ -54,11 +54,20 @@ The tool returns structured JSON. This is the actual response for the comic abov
   "coverUrl": "/comics/cg_example/cover.png",
   "pageUrls": ["/comics/cg_example/cover.png", "/comics/cg_example/page-1.png", "/comics/cg_example/page-2.png"],
   "pdfUrl": "/comics/cg_example/comic.pdf",
+  "cbzUrl": "/comics/cg_example/comic.cbz",
   "perPage": [
     { "page": 1, "panels": 4, "storyBeat": "In a city that never stops moving, every second counts...",
       "imageUrl": "/comics/cg_example/page-1.png",
+      "panelDetails": [
+        { "panel": 2, "imageUrl": "/comics/cg_example/panel-1-1.png",
+          "altText": "Mia straps a glowing package onto Bob's back... Dialogue: \"COME ON, BOB! WE CAN'T BE LATE!\"",
+          "dialogue": "COME ON, BOB! WE CAN'T BE LATE!" } // one panel shown; every panel is exported
+      ],
       "evidence": { "model": "@cf/black-forest-labs/flux-1-schnell", "promptChars": 2773, "layout": "4p" } }
   ],
+  "integrity": { "algorithm": "sha256", "files": { "cover.png": "cfb38666...", "page-1.png": "7893e01f...", /* every file */ } },
+  "receipt": { "payloadSha256": "...", "algorithm": "HMAC-SHA256", "signature": "..." },
+  "license": { "usage": "...full commercial rights...", "provenance": { "imageModel": "...", "seed": 483920175, "promptSha256": "c137036b..." } },
   "evidence": {
     "model": "@cf/black-forest-labs/flux-1-schnell",
     "pagesGenerated": 2, "panelsGenerated": 8,
@@ -114,6 +123,10 @@ Register a character once, reuse it forever. Stores a canonical appearance descr
 ### `revise_page` (paid — base rate)
 
 Revise one page of a delivered comic without regenerating the rest: `{ jobId, page, instruction }` — e.g. *"make panel 2 a dramatic close-up"* or *"rewrite the dialogue to be funnier"*. The page spec is rewritten by the LLM, re-rendered with the job's **original seed and cast**, and the PDF/CBZ are rebuilt when the other pages are still on disk. Jobs stay revisable for 7 days (`JOB_TTL_MS`).
+
+### `get_job` (free)
+
+Re-fetch the full delivery payload of a previously generated comic by `jobId` — the recovery path when a paid `generate_comic` response was lost to a connection drop or timeout. You paid once; the result stays fetchable for 7 days. The payload reports `filesAvailable` since comic files expire from disk on a shorter TTL (24h) than the metadata.
 
 ### `get_character` (free)
 
@@ -194,7 +207,9 @@ Charged per tool call via x402 v2 on X Layer (USDT0). No free quota. `generate_c
 | `revise_page` | 1× | 0.50 USDT |
 | `create_character` | 1× | 0.50 USDT |
 
-The base price is set by `X402_PRICE_USD`; multipliers are applied automatically. Discovery calls (`initialize`, `tools/list`), `clarify_comic`, `get_quota`, `get_character`, `create_series`, and `get_series` are always free. Deterministic failures (bad input, unknown `characterIds`/`jobId`, missing image provider) are rejected **before** payment.
+The base price is set by `X402_PRICE_USD`; multipliers are applied automatically. Discovery calls (`initialize`, `tools/list`), `clarify_comic`, `get_quota`, `get_job`, `get_character`, `create_series`, and `get_series` are always free. Deterministic failures (bad input, unknown `characterIds`/`jobId`, missing image provider) are rejected **before** payment.
+
+Abuse guards: `/mcp` is rate-limited to 120 requests/minute per IP, `create_series` (free but disk-writing) to 20/hour per IP, and the persistent store caps each collection at 5000 records.
 
 Our own cost per generation is roughly **$0.01** (LLM storyboard ~$0.005 + free-tier image generation + assembly), so the fee reflects real cost with margin.
 
@@ -254,7 +269,7 @@ bored-comic/
         ├── index.ts          # Express + MCP + x402 + static files
         ├── config.ts         # env configuration
         ├── types.ts          # types, layout templates, pickLayout()
-        ├── mcp.ts            # MCP server: all 8 tools
+        ├── mcp.ts            # MCP server: all 9 tools
         ├── x402.ts           # x402 payment gate + per-tool pricing + preflight
         ├── pipeline.ts       # orchestrator, page/webtoon assembly, revise_page
         ├── writer.ts         # LLM → storyboard, series context, page revision

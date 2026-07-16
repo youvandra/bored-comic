@@ -125,7 +125,7 @@
       <div class="flex justify-center mt-8">
         <div class="bubble max-w-xl text-left text-lg font-bold">
           "I have a story idea — make it into a comic I can share."
-          <br /><span class="font-normal">An A2MCP agent on OKX.AI turns a prompt into a full comic: story, panels, speech bubbles, cover, and a PDF.</span>
+          <br /><span class="font-normal">An A2MCP agent on OKX.AI turns a prompt into a full comic: story, panels, speech bubbles, cover, PDF + CBZ. And it remembers — persistent characters, ongoing series, one-page revisions.</span>
         </div>
       </div>
     </header>
@@ -194,6 +194,45 @@
       </div>
     </section>
 
+    <!-- MOAT: STATEFUL FEATURES -->
+    <section class="mb-12">
+      <div class="text-center mb-5">
+        <h2 class="display text-4xl outline-title">NOT JUST ONE-SHOT</h2>
+        <p class="font-bold mt-1">Most generators forget you the moment they answer. BoredComic remembers.</p>
+      </div>
+      <div class="grid sm:grid-cols-2 gap-6">
+        <div class="panel bg-white p-5">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="burst text-sm">PAID</span>
+            <h3 class="display text-2xl">create_character</h3>
+          </div>
+          <p class="font-bold text-sm">Register a hero once — canonical look, stable seed, rendered reference sheet. Every future comic that stars them keeps the same design. Your cast lives here.</p>
+        </div>
+        <div class="panel bg-white p-5">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="burst text-sm tag-blue" style="background:var(--blue)">FREE</span>
+            <h3 class="display text-2xl">create_series</h3>
+          </div>
+          <p class="font-bold text-sm">Every <code>generate_comic</code> with a seriesId becomes the next episode — the story continues from last episode's ending. Run a weekly webtoon on autopilot.</p>
+        </div>
+        <div class="panel bg-white p-5">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="burst text-sm">PAID</span>
+            <h3 class="display text-2xl">revise_page</h3>
+          </div>
+          <p class="font-bold text-sm">"Make panel 2 a dramatic close-up." One page re-written and re-drawn with the original seed and cast — base rate, not full price. Revisable for 7 days.</p>
+        </div>
+        <div class="panel bg-white p-5">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="burst text-sm" style="background:#0a9">BUILT-IN</span>
+            <h3 class="display text-2xl">Verifiable delivery</h3>
+          </div>
+          <p class="font-bold text-sm">SHA-256 of every file, an HMAC-signed receipt, and an explicit commercial license with provenance. Lost the response? <code>get_job</code> re-serves a paid delivery free for 7 days.</p>
+        </div>
+      </div>
+      <p class="text-center font-bold mt-4">Plus: webtoon vertical-strip mode · CBZ output · per-panel images with alt text.</p>
+    </section>
+
     <!-- TOOL -->
     <section class="panel p-6 mb-10">
       <div class="flex items-center gap-3 mb-4 flex-wrap">
@@ -202,7 +241,7 @@
       </div>
       <p class="mb-4 font-bold">
         MCP endpoint: <code class="ink tag-yellow px-2 py-1">POST /mcp</code>
-        — paid via x402, no free quota.
+        — 9 tools total; paid calls via x402, no free quota.
       </p>
 
       <div class="overflow-x-auto">
@@ -220,6 +259,9 @@
             <tr class="ink border-x-0"><td class="p-3 border-r-2 border-black">aspectRatio</td><td class="p-3 border-r-2 border-black">enum</td><td class="p-3">3:4 · 9:16 · 1:1 (default 3:4)</td></tr>
             <tr><td class="p-3 border-r-2 border-black">language</td><td class="p-3 border-r-2 border-black">string</td><td class="p-3">BCP-47, e.g. en · id · ja · zh (default en)</td></tr>
             <tr class="ink border-x-0"><td class="p-3 border-r-2 border-black">colorMode</td><td class="p-3 border-r-2 border-black">enum</td><td class="p-3">color · bw (default color)</td></tr>
+            <tr><td class="p-3 border-r-2 border-black">layoutMode</td><td class="p-3 border-r-2 border-black">enum</td><td class="p-3">page · webtoon — vertical strip for scroll platforms</td></tr>
+            <tr class="ink border-x-0"><td class="p-3 border-r-2 border-black">characterIds</td><td class="p-3 border-r-2 border-black">string[]</td><td class="p-3">Registered characters (create_character) that must star</td></tr>
+            <tr><td class="p-3 border-r-2 border-black">seriesId</td><td class="p-3 border-r-2 border-black">string</td><td class="p-3">Continue a series (create_series) from last episode's ending</td></tr>
           </tbody>
         </table>
       </div>
@@ -238,9 +280,15 @@
   "coverUrl": "/comics/cg_1784.../cover.png",
   "pageUrls": ["/comics/.../cover.png", "/comics/.../page-1.png", ...],
   "pdfUrl": "/comics/.../comic.pdf",
+  "cbzUrl": "/comics/.../comic.cbz",
   "characters": [{ "name": "Kai", "role": "protagonist", "appearance": "young detective, blue spiky hair, tan coat" }],
   "perPage": [{ "page": 1, "panels": 4, "storyBeat": "The chase begins...",
+    "panelDetails": [{ "panel": 1, "imageUrl": "/comics/.../panel-1-0.png",
+      "altText": "Wide shot of a rain-slicked street at night. Characters: Kai." }],
     "evidence": { "model": "@cf/black-forest-labs/flux-1-schnell", "layout": "4p" } }],
+  "integrity": { "algorithm": "sha256", "files": { "cover.png": "e3b0c4...", "comic.pdf": "a1b2c3..." } },
+  "receipt": { "payloadSha256": "1f4dd1...", "algorithm": "HMAC-SHA256", "signature": "9c2e4d..." },
+  "license": { "usage": "...commercial use granted...", "provenance": { "seed": 3048613506, "promptSha256": "11814b..." } },
   "evidence": {
     "model": "@cf/black-forest-labs/flux-1-schnell",
     "pagesGenerated": 3, "panelsGenerated": 11,
@@ -273,6 +321,7 @@
           <div class="font-bold">USDT</div>
         </div>
       </div>
+      <p class="text-center font-bold mt-5"><code>revise_page</code> &amp; <code>create_character</code>: base rate (0.5) · <code>create_series</code>, <code>get_job</code>, <code>get_quota</code>, <code>clarify_comic</code> &amp; lookups: <span class="ink tag-yellow px-2 py-0.5">FREE</span></p>
     </section>
 
     <!-- HONESTY -->

@@ -49,6 +49,8 @@ export interface StoredSeries {
 }
 
 // Everything needed to revise a page after delivery: storyboard, seed, dims.
+// The full delivery payload is kept so get_job can re-serve a paid result
+// whose response was lost (connection drop, proxy timeout).
 export interface StoredJob {
   jobId: string;
   input: GenerateComicInput;
@@ -59,6 +61,7 @@ export interface StoredJob {
   layoutMode: LayoutMode;
   characterIds: string[];
   seriesId?: string;
+  delivery?: ComicDelivery;
   createdAt: string;
   updatedAt: string;
 }

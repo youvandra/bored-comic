@@ -2,7 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { runPipeline, revisePage } from "./pipeline.js";
 import { createCharacter } from "./character.js";
-import { getCharacter, getSeries, newId, saveSeries } from "./store.js";
+import { collectionCount, getCharacter, getJob, getSeries, MAX_COLLECTION_SIZE, newId, saveSeries } from "./store.js";
+import { config } from "./config.js";
+import fs from "node:fs";
+import path from "node:path";
 import { GenerateComicInput, MAX_PAGES, MIN_PAGES } from "./types.js";
 import { x402Info } from "./x402.js";
 
@@ -28,6 +31,7 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
         "create_character (paid): register a character once — canonical appearance + stable seed + reference sheet — then reuse it across comics via characterIds for consistent appearance. " +
         "create_series (free): start a series; each generate_comic with the seriesId continues the story from the previous episode's ending. " +
         "revise_page (paid): change one page of a delivered comic ('make panel 2 more dramatic', 'change the dialogue') without regenerating the whole comic. " +
+        "get_job (free): re-fetch the full delivery of a paid comic by jobId — the recovery path if your connection dropped mid-generation. " +
         "clarify_comic and get_quota are always free. Payment is per-call via x402.",
     },
   );
@@ -191,6 +195,33 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
   );
 
   server.registerTool(
+    "get_job",
+    {
+      title: "Re-fetch a delivered comic",
+      annotations: { readOnlyHint: true },
+      description:
+        "Free tool: fetch the full delivery payload of a previously generated comic by jobId. This is the recovery path when a paid generate_comic response was lost to a connection drop or timeout — you paid once, the result stays fetchable for 7 days. Note: the metadata outlives the files; comic images/PDF expire from disk after 24h.",
+      inputSchema: {
+        jobId: z.string().describe("Job ID returned by generate_comic"),
+      },
+    },
+    async (input) => {
+      const job = getJob(input.jobId);
+      if (!job || !job.delivery) {
+        return jsonResult({ error: `Unknown or expired jobId: ${input.jobId}. Deliveries stay fetchable for 7 days.` }, true);
+      }
+      // Files expire on a shorter TTL than the job record — tell the agent
+      // whether the URLs in this payload are still downloadable.
+      const filesOnDisk = fs.existsSync(path.join(config.comicDir, input.jobId, "cover.png"));
+      return jsonResult({
+        ...job.delivery,
+        filesAvailable: filesOnDisk,
+        ...(filesOnDisk ? {} : { filesNote: "Comic files have expired from storage (24h TTL). Metadata and integrity hashes remain valid; regenerate to get new files." }),
+      });
+    },
+  );
+
+  server.registerTool(
     "get_character",
     {
       title: "Get a registered character",
@@ -227,6 +258,9 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
       const missing = (input.characterIds ?? []).filter((id) => !getCharacter(id));
       if (missing.length > 0) {
         return jsonResult({ error: `Unknown characterId(s): ${missing.join(", ")}` }, true);
+      }
+      if (collectionCount("series") >= MAX_COLLECTION_SIZE) {
+        return jsonResult({ error: "Series store is at capacity. Contact the operator." }, true);
       }
       const now = new Date().toISOString();
       const series = {
