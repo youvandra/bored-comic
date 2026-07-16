@@ -6,6 +6,7 @@ import { config } from "./config.js";
 import { buildMcpServer } from "./mcp.js";
 import { x402Gate, x402Info } from "./x402.js";
 import { resolveComicPath, startCleanup } from "./storage.js";
+import { resolveCharacterImagePath } from "./store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
@@ -46,6 +47,16 @@ app.all("/mcp", (_req, res) => {
 
 app.get("/comics/:jobId/:file", (req, res) => {
   const filePath = resolveComicPath(req.params.jobId, req.params.file);
+  if (!filePath) return res.status(400).json({ error: "invalid path" });
+  return res.sendFile(filePath, (err) => {
+    if (err && !res.headersSent) res.status(404).json({ error: "not found" });
+  });
+});
+
+// Character reference sheets live in the persistent data dir, not the
+// TTL-swept comic dir — they must outlive any single job.
+app.get("/characters/:characterId/:file", (req, res) => {
+  const filePath = resolveCharacterImagePath(req.params.characterId, req.params.file);
   if (!filePath) return res.status(400).json({ error: "invalid path" });
   return res.sendFile(filePath, (err) => {
     if (err && !res.headersSent) res.status(404).json({ error: "not found" });

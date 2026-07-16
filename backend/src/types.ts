@@ -1,11 +1,66 @@
 export type Genre = "horror" | "romance" | "action" | "comedy" | "manga" | "fantasy" | "sci-fi" | "slice-of-life";
 export type ComicStyle = "manga" | "western" | "semi-realistic" | "chibi";
 export type ColorMode = "color" | "bw";
+export type LayoutMode = "page" | "webtoon";
 
 export interface Character {
   name: string;
   role: string;
   appearance: string;
+}
+
+// ——— Persistent store records ———
+
+// A registered character: canonical appearance text + a stable seed so the
+// same character can appear across many comics with a consistent baseline.
+export interface StoredCharacter {
+  characterId: string;
+  name: string;
+  role: string;
+  appearance: string;
+  style: ComicStyle;
+  seed: number;
+  referenceUrl: string | null; // generated character-sheet image
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SeriesEpisode {
+  episode: number;
+  jobId: string;
+  title: string;
+  synopsis: string;
+  endingSummary: string;
+  createdAt: string;
+}
+
+// An ongoing series: fixed cast + episode history the writer uses as context.
+export interface StoredSeries {
+  seriesId: string;
+  title: string;
+  genre?: Genre;
+  style?: ComicStyle;
+  language?: string;
+  colorMode?: ColorMode;
+  characterIds: string[];
+  episodes: SeriesEpisode[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Everything needed to revise a page after delivery: storyboard, seed, dims.
+export interface StoredJob {
+  jobId: string;
+  input: GenerateComicInput;
+  storyboard: Storyboard;
+  seed: number;
+  pageW: number;
+  pageH: number;
+  layoutMode: LayoutMode;
+  characterIds: string[];
+  seriesId?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type DialogueType = "speech" | "shout" | "thought";
@@ -34,6 +89,9 @@ export interface Storyboard {
   synopsis: string;
   characters: Character[];
   pages: PageSpec[];
+  // 1-2 sentences describing where the story ends — stored per episode so the
+  // next episode in a series can continue from it.
+  endingSummary?: string;
 }
 
 // Layout: position and size as percentage of page dimensions
@@ -53,11 +111,24 @@ export interface PageEvidence {
   caveat: string;
 }
 
+// Per-panel export: raw art + accessibility alt text + the lettering content.
+// Lets an agent quote a single panel or caption it without image analysis.
+export interface PanelDetail {
+  panel: number;
+  imageUrl: string;
+  altText: string;
+  dialogue?: string;
+  dialogue2?: string;
+  sfx?: string;
+  cameraAngle?: string;
+}
+
 export interface PageResult {
   page: number;
   panels: number;
   storyBeat: string;
   imageUrl: string;
+  panelDetails: PanelDetail[];
   evidence: PageEvidence;
 }
 
@@ -72,6 +143,35 @@ export interface ComicEvidence {
   caveat: string;
 }
 
+// SHA-256 of every delivered file, keyed by filename. The payer can verify
+// the bytes they downloaded are the bytes they paid for.
+export interface DeliveryIntegrity {
+  algorithm: "sha256";
+  files: Record<string, string>;
+}
+
+// Signed proof of delivery. signature is HMAC-SHA256 over
+// `${jobId}.${payloadSha256}.${issuedAt}` with the server's receipt key.
+export interface DeliveryReceipt {
+  jobId: string;
+  issuedAt: string;
+  payloadSha256: string;
+  algorithm: "HMAC-SHA256";
+  signature: string | null;
+  note: string;
+}
+
+export interface DeliveryLicense {
+  usage: string;
+  attribution: string;
+  aiDisclosure: string;
+  provenance: {
+    imageModel: string;
+    seed: number;
+    promptSha256: string;
+  };
+}
+
 export interface ComicDelivery {
   jobId: string;
   summary: string;
@@ -82,11 +182,20 @@ export interface ComicDelivery {
   genre: Genre;
   language: string;
   colorMode: ColorMode;
+  layoutMode: LayoutMode;
   characters: Character[];
+  characterIds?: string[];
+  seriesId?: string;
+  episode?: number;
   coverUrl: string;
   pageUrls: string[];
   pdfUrl: string;
+  cbzUrl: string;
+  stripUrl?: string; // webtoon mode: all pages as one vertical strip
   perPage: PageResult[];
+  integrity: DeliveryIntegrity;
+  receipt: DeliveryReceipt;
+  license: DeliveryLicense;
   evidence: ComicEvidence;
 }
 
@@ -98,6 +207,9 @@ export interface GenerateComicInput {
   aspectRatio?: "3:4" | "9:16" | "1:1";
   language?: string;
   colorMode?: ColorMode;
+  layoutMode?: LayoutMode;
+  characterIds?: string[];
+  seriesId?: string;
 }
 
 export const MAX_PAGES = 10;

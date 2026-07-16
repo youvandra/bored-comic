@@ -1,4 +1,5 @@
 import "dotenv/config";
+import path from "node:path";
 
 export interface CloudflareAccount {
   accountId: string;
@@ -39,6 +40,15 @@ export const config = {
 
   comicDir: process.env.COMIC_DIR || "/tmp/boredcomic",
   comicTtlMs: Number(process.env.COMIC_TTL_MS || "86400000"),
+
+  // Persistent store for characters, series, and job storyboards. Unlike
+  // comicDir this must survive restarts — it's the state behind character
+  // persistence, series continuity, and revise_page.
+  dataDir: path.resolve(process.env.DATA_DIR || "./data"),
+  // Stored jobs older than this can no longer be revised (default 7 days).
+  jobTtlMs: Number(process.env.JOB_TTL_MS || "604800000"),
+  // HMAC key for signed delivery receipts. Unset → receipts are unsigned.
+  receiptSecret: process.env.RECEIPT_SECRET || "",
 
   x402Mode: (process.env.X402_MODE || "off") as "off" | "demo" | "on",
   x402PayTo: process.env.X402_PAY_TO || "",

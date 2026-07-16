@@ -5,6 +5,7 @@ import { OKXFacilitatorClient } from "@okxweb3/x402-core";
 import { ExactEvmScheme } from "@okxweb3/x402-evm/exact/server";
 import { config } from "./config.js";
 import { hasImageProvider } from "./illustrator.js";
+import { getCharacters, getJob } from "./store.js";
 import { MAX_PAGES, MIN_PAGES } from "./types.js";
 
 const NETWORK = "eip155:196";
@@ -26,6 +27,20 @@ export function priceForPages(pages: number): string {
   const base = Number(config.x402PriceUsd) || 0;
   const price = base * tierMultiplier(pages || 1);
   return price.toFixed(2);
+}
+
+// Per-tool pricing. generate_comic scales with page count; revise_page and
+// create_character are single generations, so they cost the base rate.
+const FREE_TOOLS = new Set(["get_quota", "clarify_comic", "get_character", "get_series", "create_series"]);
+const PAID_TOOLS = new Set(["generate_comic", "revise_page", "create_character"]);
+
+export function priceForTool(tool: string, args: { pages?: unknown } | undefined): string | null {
+  if (FREE_TOOLS.has(tool) || !PAID_TOOLS.has(tool)) return null;
+  if (tool === "generate_comic") {
+    const pages = typeof args?.pages === "number" ? args.pages : 1;
+    return priceForPages(pages);
+  }
+  return priceForPages(1); // base rate: revise_page, create_character
 }
 
 // Cache one paid middleware per distinct price string.
@@ -72,28 +87,71 @@ function paidFor(price: string): Handler {
 
 // Cheap, deterministic checks that would otherwise fail *after* payment.
 // The `exact` scheme can't refund a settled payment, so we reject these up front.
-function preflightError(args: { prompt?: unknown; pages?: unknown } | undefined): string | null {
-  if (!hasImageProvider()) return "Image generation is not configured (no Cloudflare account).";
-  if (typeof args?.prompt !== "string" || args.prompt.length < 3) return "prompt must be a string of at least 3 characters.";
-  const pages = args?.pages;
-  if (typeof pages !== "number" || !Number.isInteger(pages) || pages < MIN_PAGES || pages > MAX_PAGES) {
-    return `pages must be an integer between ${MIN_PAGES} and ${MAX_PAGES}.`;
+type ToolArgs = {
+  prompt?: unknown;
+  pages?: unknown;
+  characterIds?: unknown;
+  seriesId?: unknown;
+  jobId?: unknown;
+  page?: unknown;
+  instruction?: unknown;
+  name?: unknown;
+  appearance?: unknown;
+};
+
+function preflightError(tool: string, args: ToolArgs | undefined): string | null {
+  if (tool === "generate_comic") {
+    if (!hasImageProvider()) return "Image generation is not configured (no Cloudflare account).";
+    if (typeof args?.prompt !== "string" || args.prompt.length < 3) return "prompt must be a string of at least 3 characters.";
+    const pages = args?.pages;
+    if (typeof pages !== "number" || !Number.isInteger(pages) || pages < MIN_PAGES || pages > MAX_PAGES) {
+      return `pages must be an integer between ${MIN_PAGES} and ${MAX_PAGES}.`;
+    }
+    // Unknown character/series IDs fail deterministically — reject pre-payment.
+    if (Array.isArray(args?.characterIds) && args.characterIds.length > 0) {
+      const ids = args.characterIds.filter((id): id is string => typeof id === "string");
+      const found = new Set(getCharacters(ids).map((c) => c.characterId));
+      const missing = ids.filter((id) => !found.has(id));
+      if (missing.length > 0) return `Unknown characterId(s): ${missing.join(", ")}. Register them first with create_character.`;
+    }
+    return null;
   }
+
+  if (tool === "revise_page") {
+    if (!hasImageProvider()) return "Image generation is not configured (no Cloudflare account).";
+    if (typeof args?.jobId !== "string" || !getJob(args.jobId)) {
+      return "jobId is unknown or its revision window has expired.";
+    }
+    if (typeof args?.page !== "number" || !Number.isInteger(args.page) || args.page < 1) return "page must be a positive integer.";
+    if (typeof args?.instruction !== "string" || args.instruction.length < 3) return "instruction must be a string of at least 3 characters.";
+    return null;
+  }
+
+  if (tool === "create_character") {
+    if (!hasImageProvider()) return "Image generation is not configured (no Cloudflare account).";
+    if (typeof args?.name !== "string" || args.name.length < 1) return "name is required.";
+    if (typeof args?.appearance !== "string" || args.appearance.length < 20) {
+      return "appearance must be a detailed visual description (at least 20 characters).";
+    }
+    return null;
+  }
+
   return null;
 }
 
 export function x402Gate(req: Request, res: Response, next: NextFunction): void {
   if (!isEnabled()) return next();
 
-  const body = req.body as { method?: string; params?: { name?: string; arguments?: { prompt?: unknown; pages?: number } } } | undefined;
+  const body = req.body as { method?: string; params?: { name?: string; arguments?: ToolArgs } } | undefined;
 
-  // Discovery and introspection stay free
+  // Discovery, introspection, and store lookups stay free.
   if (body?.method !== "tools/call") return next();
-  const FREE_TOOLS = new Set(["get_quota", "clarify_comic"]);
-  if (FREE_TOOLS.has(body?.params?.name ?? "")) return next();
+  const tool = body?.params?.name ?? "";
+  const price = priceForTool(tool, body?.params?.arguments as { pages?: unknown });
+  if (price === null) return next();
 
   // Reject deterministic failures before charging — the exact scheme has no refund path.
-  const preErr = preflightError(body?.params?.arguments);
+  const preErr = preflightError(tool, body?.params?.arguments);
   if (preErr) {
     res.status(400).json({
       jsonrpc: "2.0",
@@ -102,10 +160,6 @@ export function x402Gate(req: Request, res: Response, next: NextFunction): void 
     });
     return;
   }
-
-  // No free quota — price scales with requested page count.
-  const pages = body?.params?.arguments?.pages ?? 1;
-  const price = priceForPages(pages);
 
   // If the request carries a payment proof, let the SDK verify + settle it.
   // The OKX SDK reads the proof from the PAYMENT-SIGNATURE header (Node lowercases
@@ -150,10 +204,14 @@ export function x402Info(): Record<string, unknown> {
     x402Version: 2,
     pricing: {
       basePerToolCall: `$${config.x402PriceUsd}`,
-      tiers: {
-        "1-3 pages": `$${priceForPages(1)}`,
-        "4-6 pages": `$${priceForPages(4)}`,
-        "7-10 pages": `$${priceForPages(7)}`,
+      tools: {
+        generate_comic: {
+          "1-3 pages": `$${priceForPages(1)}`,
+          "4-6 pages": `$${priceForPages(4)}`,
+          "7-10 pages": `$${priceForPages(7)}`,
+        },
+        revise_page: `$${priceForPages(1)}`,
+        create_character: `$${priceForPages(1)}`,
       },
       asset: USDT0_XLAYER,
       assetSymbol: "USDT0",
@@ -161,8 +219,8 @@ export function x402Info(): Record<string, unknown> {
       payTo: config.x402PayTo || null,
     },
     settlement: "on-chain, settled by the OKX facilitator (@okxweb3/x402-express)",
-    metered: ["tools/call on POST /mcp"],
-    free: ["initialize", "tools/list", "get_quota", "clarify_comic"],
-    note: "No free daily quota — every tools/call past discovery requires payment.",
+    metered: ["generate_comic", "revise_page", "create_character"],
+    free: ["initialize", "tools/list", "get_quota", "clarify_comic", "get_character", "get_series", "create_series"],
+    note: "No free daily quota — every metered tools/call requires payment.",
   };
 }

@@ -1,13 +1,17 @@
 import { bangers, comicNeue, linePath, fitFontSize } from "./fonts.js";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir, unlink } from "node:fs/promises";
+import fs from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
 import { config } from "./config.js";
-import type { Character, ComicDelivery, ComicEvidence, DialogueType, GenerateComicInput, PageResult, PanelLayout, PanelDescription, Storyboard } from "./types.js";
+import type { Character, ComicDelivery, DialogueType, GenerateComicInput, LayoutMode, PageResult, PageSpec, PanelDetail, PanelLayout, PanelDescription, StoredCharacter, Storyboard } from "./types.js";
 import { pickLayout } from "./types.js";
-import { generateStoryboard } from "./writer.js";
+import { generateStoryboard, reviseStoryboardPage, type StoryboardOptions } from "./writer.js";
 import { generatePanel, type ImageGenResult } from "./illustrator.js";
 import { buildPdf } from "./assembler.js";
+import { buildCbz } from "./cbz.js";
+import { buildIntegrity, buildLicense, buildReceipt } from "./receipt.js";
+import { appendEpisode, getCharacters, getJob, getSeries, saveJob } from "./store.js";
 
 export interface PipelineHooks {
   setStatus(status: string): void;
@@ -15,6 +19,7 @@ export interface PipelineHooks {
 
 const GUTTER = 14;
 const FRAME_STROKE = 4; // black ink border around each panel
+export const MODEL_ID = "@cf/black-forest-labs/flux-1-schnell";
 
 // Page dimensions per aspect ratio. Base width ~800px, height derived.
 export function pageDims(aspectRatio?: string): { width: number; height: number } {
@@ -29,6 +34,112 @@ export function pageDims(aspectRatio?: string): { width: number; height: number 
   }
 }
 
+// Webtoon mode: full-width square-ish panels stacked vertically, page height
+// derived from the panel count. Rendering reuses the normal page assembler —
+// only the layout fractions and canvas size differ.
+const WEBTOON_WIDTH = 800;
+const WEBTOON_PANEL_H = 800;
+
+export function webtoonDims(panelCount: number): { width: number; height: number } {
+  return {
+    width: WEBTOON_WIDTH,
+    height: GUTTER + panelCount * (WEBTOON_PANEL_H + GUTTER),
+  };
+}
+
+export function webtoonLayouts(panelCount: number): PanelLayout[] {
+  return Array.from({ length: panelCount }, (_, i) => ({
+    panelIndex: i,
+    x: 0,
+    y: i / panelCount,
+    w: 1,
+    h: 1 / panelCount,
+  }));
+}
+
+// Plain-language description of a panel — usable directly as image alt text.
+export function panelAltText(pd: PanelDescription): string {
+  const scene = pd.scene.replace(/\.?\s*$/, ".");
+  const chars = pd.characters?.length ? ` Characters: ${pd.characters.join(", ")}.` : "";
+  const dlg = pd.dialogue ? ` Dialogue: "${pd.dialogue}"${pd.dialogue2 ? ` / "${pd.dialogue2}"` : ""}.` : "";
+  const sfx = pd.sfx ? ` Sound effect: ${pd.sfx}.` : "";
+  return `${scene}${chars}${dlg}${sfx}`;
+}
+
+// Render one storyboard page: generate its panels, letter and assemble it,
+// return the PageResult. Shared by runPipeline and revisePage.
+async function renderStoryPage(params: {
+  page: PageSpec;
+  layouts: PanelLayout[];
+  storyboard: Storyboard;
+  jobId: string;
+  workDir: string;
+  jobSeed: number;
+  style: string;
+  colorMode: string;
+  genre?: string;
+  pageW: number;
+  pageH: number;
+  characterCaveat: string;
+}): Promise<PageResult> {
+  const { page, layouts, storyboard, jobId, workDir, jobSeed, style, colorMode, genre, pageW, pageH, characterCaveat } = params;
+  const panelImages: ImageGenResult[] = [];
+
+  for (let i = 0; i < page.panelDescriptions.length; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 1500));
+    const pd = page.panelDescriptions[i]!;
+    const prompt = buildPanelPrompt(pd, storyboard.characters, style, colorMode);
+
+    let img: ImageGenResult;
+    try {
+      img = await generatePanel({ prompt, seed: jobSeed, pageNumber: page.page, panelIndex: i, workDir, jobId });
+    } catch {
+      // A single unrecoverable panel (safety filter, exhausted quota) must not
+      // sink an already-paid comic — drop in a styled placeholder and continue.
+      img = await makePlaceholderPanel(workDir, page.page, i);
+    }
+    panelImages.push(img);
+  }
+
+  await assemblePage({ panels: panelImages, layouts, pageNumber: page.page, workDir, descriptions: page.panelDescriptions, storyBeat: page.storyBeat, colorMode, genre, pageW, pageH });
+
+  const panelDetails: PanelDetail[] = page.panelDescriptions.map((pd, i) => ({
+    panel: i + 1,
+    imageUrl: `/comics/${jobId}/panel-${page.page}-${i}.png`,
+    altText: panelAltText(pd),
+    dialogue: pd.dialogue,
+    dialogue2: pd.dialogue2,
+    sfx: pd.sfx,
+    cameraAngle: pd.cameraAngle,
+  }));
+
+  return {
+    page: page.page,
+    panels: page.panelDescriptions.length,
+    storyBeat: page.storyBeat,
+    imageUrl: `/comics/${jobId}/page-${page.page}.png`,
+    panelDetails,
+    evidence: {
+      model: MODEL_ID,
+      promptChars: panelImages.reduce((s, p) => s + p.promptChars, 0),
+      characterCount: page.panelDescriptions.reduce((s, pd) => Math.max(s, pd.characters.length), 0),
+      layout: `${layouts.length}p`,
+      caveat: characterCaveat,
+    },
+  };
+}
+
+// Every file a job can deliver — hashed for the integrity map.
+function deliverableFiles(storyboard: Storyboard, layoutMode: LayoutMode): string[] {
+  const files = ["cover.png", "comic.pdf", "comic.cbz", "endcard.png"];
+  if (layoutMode === "webtoon") files.push("strip.png");
+  for (const page of storyboard.pages) {
+    files.push(`page-${page.page}.png`);
+    page.panelDescriptions.forEach((_, i) => files.push(`panel-${page.page}-${i}.png`));
+  }
+  return files;
+}
+
 export async function runPipeline(
   jobId: string,
   input: GenerateComicInput,
@@ -37,77 +148,116 @@ export async function runPipeline(
   const workDir = join(config.comicDir, jobId);
   await mkdir(workDir, { recursive: true });
   const startTime = Date.now();
+  const layoutMode: LayoutMode = input.layoutMode === "webtoon" ? "webtoon" : "page";
+
+  // Series: fill unset input fields from series defaults, union its fixed cast.
+  const series = input.seriesId ? getSeries(input.seriesId) : null;
+  if (input.seriesId && !series) throw new Error(`Unknown seriesId: ${input.seriesId}`);
+  if (series) {
+    input = {
+      ...input,
+      genre: input.genre ?? series.genre,
+      style: input.style ?? series.style,
+      language: input.language ?? series.language,
+      colorMode: input.colorMode ?? series.colorMode,
+    };
+  }
+  const characterIds = [...new Set([...(input.characterIds ?? []), ...(series?.characterIds ?? [])])];
+
+  // Registered characters: canonical appearance text + stable seeds.
+  const storedChars: StoredCharacter[] = characterIds.length > 0 ? getCharacters(characterIds) : [];
+  if (storedChars.length !== characterIds.length) {
+    const found = new Set(storedChars.map((c) => c.characterId));
+    const missing = characterIds.filter((id) => !found.has(id));
+    throw new Error(`Unknown characterId(s): ${missing.join(", ")}`);
+  }
+
   const lang = input.language || "en";
   const colorMode = input.colorMode || "color";
+  const style = input.style || "manga";
   const { width: pageW, height: pageH } = pageDims(input.aspectRatio);
-  // One seed per job so panels share a coherent visual baseline.
-  const jobSeed = Math.floor(Math.random() * 1_000_000_000);
+
+  // One seed per job so panels share a coherent visual baseline. With
+  // registered characters the seed is derived from their stored seeds, so the
+  // same cast keeps the same baseline across every comic they appear in.
+  const jobSeed = storedChars.length > 0
+    ? storedChars.reduce((s, c) => (s ^ c.seed) >>> 0, 0x9e3779b9)
+    : Math.floor(Math.random() * 1_000_000_000);
 
   hooks.setStatus("writing");
-  const storyboard = await generateStoryboard(input);
+  const opts: StoryboardOptions = {
+    fixedCharacters: storedChars.map((c) => ({ name: c.name, role: c.role, appearance: c.appearance })),
+    seriesContext: series
+      ? {
+          seriesTitle: series.title,
+          episodes: series.episodes.map((e) => ({ episode: e.episode, title: e.title, endingSummary: e.endingSummary })),
+        }
+      : undefined,
+  };
+  const storyboard = await generateStoryboard(input, opts);
 
   hooks.setStatus("illustrating");
+  // Layouts chosen up front (sequentially) so each page can still avoid
+  // repeating the previous page's layout while pages render in parallel.
   const pageLayouts: PanelLayout[][] = [];
-
-  const pageTasks = storyboard.pages.map(async (page, pageIdx) => {
-    const firstCam = page.panelDescriptions[0]?.cameraAngle;
-    const prevLayoutObj = pageLayouts[pageIdx - 1] ?? null;
-    const isClimax = storyboard.pages.length > 1 && pageIdx === storyboard.pages.length - 1;
-    const layouts = pickLayout(page.panelDescriptions.length, prevLayoutObj, firstCam, isClimax);
-    pageLayouts.push(layouts);
-    const panelImages: ImageGenResult[] = [];
-
-    for (let i = 0; i < page.panelDescriptions.length; i++) {
-      if (i > 0) await new Promise((r) => setTimeout(r, 1500));
-      const pd = page.panelDescriptions[i]!;
-      const prompt = buildPanelPrompt(pd, storyboard.characters, input.style || "manga", colorMode);
-
-      let img: ImageGenResult;
-      try {
-        img = await generatePanel({ prompt, seed: jobSeed, pageNumber: page.page, panelIndex: i, workDir, jobId });
-      } catch {
-        // A single unrecoverable panel (safety filter, exhausted quota) must not
-        // sink an already-paid comic — drop in a styled placeholder and continue.
-        img = await makePlaceholderPanel(workDir, page.page, i);
-      }
-      panelImages.push(img);
+  const pageDimsList: { width: number; height: number }[] = [];
+  storyboard.pages.forEach((page, pageIdx) => {
+    if (layoutMode === "webtoon") {
+      pageLayouts.push(webtoonLayouts(page.panelDescriptions.length));
+      pageDimsList.push(webtoonDims(page.panelDescriptions.length));
+    } else {
+      const firstCam = page.panelDescriptions[0]?.cameraAngle;
+      const isClimax = storyboard.pages.length > 1 && pageIdx === storyboard.pages.length - 1;
+      pageLayouts.push(pickLayout(page.panelDescriptions.length, pageLayouts[pageIdx - 1] ?? null, firstCam, isClimax));
+      pageDimsList.push({ width: pageW, height: pageH });
     }
-
-    await assemblePage({ panels: panelImages, layouts, pageNumber: page.page, workDir, descriptions: page.panelDescriptions, storyBeat: page.storyBeat, colorMode, genre: input.genre, pageW, pageH });
-
-    // Report the panels actually rendered, not the LLM's declared count.
-    const renderedPanels = page.panelDescriptions.length;
-    return {
-      page: page.page,
-      panels: renderedPanels,
-      storyBeat: page.storyBeat,
-      imageUrl: `/comics/${jobId}/page-${page.page}.png`,
-      evidence: {
-        model: "@cf/black-forest-labs/flux-1-schnell",
-        promptChars: panelImages.reduce((s, p) => s + p.promptChars, 0),
-        characterCount: page.panelDescriptions.reduce((s, pd) => Math.max(s, pd.characters.length), 0),
-        layout: `${layouts.length}p`,
-        caveat: "Generated from text prompt — character appearance may vary slightly across pages.",
-      },
-    };
   });
 
-  const pageResults = await Promise.all(pageTasks);
+  const characterCaveat = storedChars.length > 0
+    ? "Registered characters use canonical appearance text and a stable seed — appearance may still vary slightly across panels."
+    : "Generated from text prompt — character appearance may vary slightly across pages.";
+
+  const pageResults = await Promise.all(
+    storyboard.pages.map((page, pageIdx) =>
+      renderStoryPage({
+        page,
+        layouts: pageLayouts[pageIdx],
+        storyboard,
+        jobId,
+        workDir,
+        jobSeed,
+        style,
+        colorMode,
+        genre: input.genre,
+        pageW: pageDimsList[pageIdx].width,
+        pageH: pageDimsList[pageIdx].height,
+        characterCaveat,
+      }),
+    ),
+  );
 
   hooks.setStatus("assembling");
+  // Cover and end card keep the standard page shape even in webtoon mode.
+  const coverDims = layoutMode === "webtoon" ? pageDims("3:4") : { width: pageW, height: pageH };
   const coverUrl = await assembleCover({
     storyboard,
     genre: input.genre,
-    style: input.style || "manga",
+    style,
     colorMode,
     workDir,
     jobId,
-    pageW,
-    pageH,
+    pageW: coverDims.width,
+    pageH: coverDims.height,
     seed: jobSeed,
   });
-  await makeEndCard(workDir, pageW, pageH, colorMode);
+  await makeEndCard(workDir, coverDims.width, coverDims.height, colorMode);
   const pdfUrl = await buildPdf(pageResults, workDir, jobId, true, storyboard.title);
+  const cbzUrl = buildCbz(workDir, jobId, pageResults.map((p) => p.page));
+
+  let stripUrl: string | undefined;
+  if (layoutMode === "webtoon") {
+    stripUrl = await makeWebtoonStrip(workDir, jobId, pageResults.map((p) => p.page));
+  }
 
   const elapsedSec = Math.round((Date.now() - startTime) / 1000);
 
@@ -115,7 +265,39 @@ export async function runPipeline(
   const actualPages = pageResults.length;
   const totalPanels = pageResults.reduce((s, p) => s + p.panels, 0);
 
-  const summary = `${actualPages}-page ${input.genre || "story"} ${input.style || "manga"} '${storyboard.title}': ${totalPanels} panels, ${storyboard.characters.length} characters. Generated in ${elapsedSec}s. Language: ${lang}. Color mode: ${colorMode}.`;
+  // Persist everything revise_page needs, then log the episode if in a series.
+  const now = new Date().toISOString();
+  saveJob({
+    jobId,
+    input: { ...input, characterIds },
+    storyboard,
+    seed: jobSeed,
+    pageW,
+    pageH,
+    layoutMode,
+    characterIds,
+    seriesId: input.seriesId,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  let episode: number | undefined;
+  if (series) {
+    const ep = appendEpisode(series.seriesId, {
+      jobId,
+      title: storyboard.title,
+      synopsis: storyboard.synopsis,
+      endingSummary: storyboard.endingSummary || storyboard.synopsis,
+      createdAt: now,
+    });
+    episode = ep?.episode;
+  }
+
+  const integrity = buildIntegrity(workDir, deliverableFiles(storyboard, layoutMode));
+  const receipt = buildReceipt(jobId, integrity);
+  const license = buildLicense(MODEL_ID, jobSeed, input.prompt);
+
+  const summary = `${actualPages}-page ${input.genre || "story"} ${style} '${storyboard.title}': ${totalPanels} panels, ${storyboard.characters.length} characters. Generated in ${elapsedSec}s. Language: ${lang}. Color mode: ${colorMode}.${layoutMode === "webtoon" ? " Layout: webtoon (vertical strip)." : ""}${episode ? ` Episode ${episode} of series ${input.seriesId}.` : ""}`;
 
   return {
     jobId,
@@ -123,17 +305,26 @@ export async function runPipeline(
     title: storyboard.title,
     pages: actualPages,
     totalPanels,
-    style: input.style || "manga",
+    style,
     genre: input.genre || "slice-of-life",
     language: lang,
     colorMode,
+    layoutMode,
     characters: storyboard.characters,
+    characterIds: characterIds.length > 0 ? characterIds : undefined,
+    seriesId: input.seriesId,
+    episode,
     coverUrl,
     pageUrls: [coverUrl, ...pageResults.map((p) => p.imageUrl)],
     pdfUrl,
+    cbzUrl,
+    stripUrl,
     perPage: pageResults,
+    integrity,
+    receipt,
+    license,
     evidence: {
-      model: "@cf/black-forest-labs/flux-1-schnell",
+      model: MODEL_ID,
       pagesGenerated: actualPages,
       panelsGenerated: totalPanels,
       generationTimeSec: elapsedSec,
@@ -142,6 +333,138 @@ export async function runPipeline(
       colorMode,
       caveat: "Comic is AI-generated. Story coherence and visual consistency are heuristic, not guaranteed.",
     },
+  };
+}
+
+// All rendered pages stacked into one tall image — the format webtoon
+// platforms ingest directly.
+async function makeWebtoonStrip(workDir: string, jobId: string, pageNumbers: number[]): Promise<string | undefined> {
+  const buffers: { buf: Buffer; w: number; h: number }[] = [];
+  for (const n of pageNumbers) {
+    const p = join(workDir, `page-${n}.png`);
+    if (!fs.existsSync(p)) continue;
+    const img = sharp(p);
+    const meta = await img.metadata();
+    buffers.push({ buf: await img.png().toBuffer(), w: meta.width || WEBTOON_WIDTH, h: meta.height || 0 });
+  }
+  if (buffers.length === 0) return undefined;
+
+  const width = Math.max(...buffers.map((b) => b.w));
+  const height = buffers.reduce((s, b) => s + b.h, 0);
+  // Guard against pathological canvas sizes (sharp/libvips limits).
+  if (height > 60_000) return undefined;
+
+  let top = 0;
+  const composite = buffers.map((b) => {
+    const layer = { input: b.buf, top, left: Math.round((width - b.w) / 2) };
+    top += b.h;
+    return layer;
+  });
+
+  await sharp({ create: { width, height, channels: 3, background: "#ffffff" } })
+    .composite(composite)
+    .png()
+    .toFile(join(workDir, "strip.png"));
+  return `/comics/${jobId}/strip.png`;
+}
+
+export interface PageRevision {
+  jobId: string;
+  page: number;
+  instruction: string;
+  imageUrl: string;
+  storyBeat: string;
+  panelDetails: PanelDetail[];
+  pdfUrl: string | null;
+  cbzUrl: string | null;
+  integrity: ReturnType<typeof buildIntegrity>;
+  receipt: ReturnType<typeof buildReceipt>;
+  note: string;
+}
+
+// Revise one page of a previously generated comic: the writer rewrites the
+// page spec per the instruction, panels regenerate with the job's original
+// seed and cast, and the PDF/CBZ are rebuilt when the other pages still exist.
+export async function revisePage(
+  jobId: string,
+  pageNumber: number,
+  instruction: string,
+  hooks: PipelineHooks,
+): Promise<PageRevision> {
+  const job = getJob(jobId);
+  if (!job) throw new Error(`Unknown or expired jobId: ${jobId}. Jobs are revisable for ${Math.round(config.jobTtlMs / 86_400_000)} days.`);
+  const original = job.storyboard.pages.find((p) => p.page === pageNumber);
+  if (!original) throw new Error(`Job ${jobId} has no page ${pageNumber}.`);
+
+  const workDir = join(config.comicDir, jobId);
+  await mkdir(workDir, { recursive: true });
+
+  hooks.setStatus("revising");
+  const revised = await reviseStoryboardPage(job.storyboard, pageNumber, instruction, job.input.language || "en");
+
+  // Stale panel files from the old version of this page would otherwise leak
+  // into the integrity map when the revision has fewer panels.
+  for (const f of await readdir(workDir)) {
+    if (f.startsWith(`panel-${pageNumber}-`)) await unlink(join(workDir, f)).catch(() => {});
+  }
+
+  hooks.setStatus("illustrating");
+  const layouts = job.layoutMode === "webtoon"
+    ? webtoonLayouts(revised.panelDescriptions.length)
+    : pickLayout(revised.panelDescriptions.length, null, revised.panelDescriptions[0]?.cameraAngle);
+  const dims = job.layoutMode === "webtoon"
+    ? webtoonDims(revised.panelDescriptions.length)
+    : { width: job.pageW, height: job.pageH };
+
+  const colorMode = job.input.colorMode || "color";
+  const pageResult = await renderStoryPage({
+    page: revised,
+    layouts,
+    storyboard: { ...job.storyboard, pages: job.storyboard.pages.map((p) => (p.page === pageNumber ? revised : p)) },
+    jobId,
+    workDir,
+    jobSeed: job.seed,
+    style: job.input.style || "manga",
+    colorMode,
+    genre: job.input.genre,
+    pageW: dims.width,
+    pageH: dims.height,
+    characterCaveat: "Revised page — regenerated with the job's original seed and cast.",
+  });
+
+  // Persist the revision so further revisions build on it.
+  job.storyboard.pages = job.storyboard.pages.map((p) => (p.page === pageNumber ? revised : p));
+  job.updatedAt = new Date().toISOString();
+  saveJob(job);
+
+  hooks.setStatus("assembling");
+  // PDF/CBZ can only be rebuilt while every other page image is still on disk.
+  const allPagesExist = job.storyboard.pages.every((p) => fs.existsSync(join(workDir, `page-${p.page}.png`)));
+  let pdfUrl: string | null = null;
+  let cbzUrl: string | null = null;
+  let note = `Page ${pageNumber} revised. Original comic files expired, so the PDF/CBZ were not rebuilt — regenerate or download the revised page image directly.`;
+  if (allPagesExist) {
+    const fakeResults = job.storyboard.pages.map((p) => ({ page: p.page })) as PageResult[];
+    pdfUrl = await buildPdf(fakeResults, workDir, jobId, true, job.storyboard.title);
+    cbzUrl = buildCbz(workDir, jobId, job.storyboard.pages.map((p) => p.page));
+    note = `Page ${pageNumber} revised; PDF and CBZ rebuilt with the new page.`;
+  }
+
+  const integrity = buildIntegrity(workDir, deliverableFiles(job.storyboard, job.layoutMode));
+  const receipt = buildReceipt(jobId, integrity);
+
+  return {
+    jobId,
+    page: pageNumber,
+    instruction,
+    imageUrl: pageResult.imageUrl,
+    storyBeat: revised.storyBeat,
+    panelDetails: pageResult.panelDetails,
+    pdfUrl,
+    cbzUrl,
+    integrity,
+    receipt,
+    note,
   };
 }
 
@@ -166,9 +489,9 @@ function applyGenreGrade(img: ReturnType<typeof sharp>, genre: string | undefine
 
 // Speech and narration are overlaid separately, so keep the art free of any
 // baked-in lettering — FLUX otherwise renders garbled text that can't be read.
-const NO_TEXT_TAG = " Absolutely no text, no speech bubbles, no captions, no letters, no watermark, no signature in the image.";
+export const NO_TEXT_TAG = " Absolutely no text, no speech bubbles, no captions, no letters, no watermark, no signature in the image.";
 
-function styleTag(style: string): string {
+export function styleTag(style: string): string {
   return style === "manga" ? "manga style, screentone textures, expressive line art, dynamic angles"
     : style === "western" ? "western comic style, bold inks, flat colors, confident lines"
     : style === "semi-realistic" ? "semi-realistic, detailed shading, textured, painterly"

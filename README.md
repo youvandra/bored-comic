@@ -1,6 +1,8 @@
 # BoredComic
 
-**An AI comic generator delivered as an A2MCP Agent Service Provider on OKX.AI.** A requesting agent sends a prompt, genre, page count, and style — BoredComic writes the story, draws every panel, letters the speech balloons and sound effects, builds a cover, and returns a complete PDF plus **decision-grade metadata** the agent can evaluate without ever looking at the comic.
+**An AI comic generator delivered as an A2MCP Agent Service Provider on OKX.AI.** A requesting agent sends a prompt, genre, page count, and style — BoredComic writes the story, draws every panel, letters the speech balloons and sound effects, builds a cover, and returns a complete PDF + CBZ plus **decision-grade metadata** the agent can evaluate without ever looking at the comic.
+
+Beyond one-shot generation, BoredComic is **stateful**: register characters once and reuse them across comics with a consistent design (`create_character`), run ongoing series where each episode continues from the previous ending (`create_series`), and revise a single page of a delivered comic without regenerating the rest (`revise_page`). Every delivery ships with SHA-256 integrity hashes, a signed receipt, and an explicit commercial-use license.
 
 | | |
 |---|---|
@@ -76,13 +78,13 @@ An autonomous agent working with creative requests constantly hits things it can
 
 > *"I have a story idea — make it into a comic I can share."*
 
-It returns structured data the agent can compose — not a web app it has to navigate. One-shot generation: no negotiation, no revision loop. Pay-per-call via x402.
+It returns structured data the agent can compose — not a web app it has to navigate. Pay-per-call via x402. And because the service is stateful, an agent can build on past calls instead of starting over: a registered cast, a running series, a paid revision of one page instead of a full regeneration.
 
 ---
 
 ## MCP tools
 
-### `generate_comic` (paid)
+### `generate_comic` (paid — tiered by pages)
 
 Generates a complete comic from a natural-language prompt.
 
@@ -92,11 +94,30 @@ Generates a complete comic from a natural-language prompt.
 | `pages` | integer | Number of pages, 1–10 — **required** |
 | `genre` | enum | horror · romance · action · comedy · manga · fantasy · sci-fi · slice-of-life |
 | `style` | enum | manga · western · semi-realistic · chibi (default: manga) |
-| `aspectRatio` | enum | 3:4 · 9:16 · 1:1 (default: 3:4) |
+| `aspectRatio` | enum | 3:4 · 9:16 · 1:1 (default: 3:4; ignored in webtoon mode) |
 | `language` | string | BCP-47 dialogue language, e.g. `en`, `id`, `ja`, `zh` (default: en) |
 | `colorMode` | enum | color · bw (default: color) |
+| `layoutMode` | enum | page · webtoon (default: page) — webtoon renders full-width panels stacked vertically plus a single tall `strip.png` |
+| `characterIds` | string[] | Registered characters (from `create_character`) that must star in the comic |
+| `seriesId` | string | Series (from `create_series`) — the story continues from the previous episode's ending |
 
-Returns the delivery payload shown above.
+Returns the delivery payload shown above, extended with per-panel images + alt text (`perPage[].panelDetails`), `cbzUrl`, `stripUrl` (webtoon), `integrity` (SHA-256 of every file), `receipt` (signed proof of delivery), and `license` (commercial-use grant + provenance).
+
+### `create_character` (paid — base rate)
+
+Register a character once, reuse it forever. Stores a canonical appearance description and a **stable generation seed**, and renders a reference character sheet. Comics generated with this character reuse both, so its design stays consistent across every comic and series episode. Inputs: `name`, `appearance` (detailed visual description, min 20 chars), optional `role`, `style`.
+
+### `create_series` (free) / `get_series` (free)
+
+`create_series` starts a series container with optional defaults (genre, style, language, colorMode) and a fixed cast of registered `characterIds`. Every `generate_comic` call carrying the `seriesId` becomes the next episode: the writer receives each previous episode's title and **ending summary** as context and continues the story. `get_series` returns the episode history.
+
+### `revise_page` (paid — base rate)
+
+Revise one page of a delivered comic without regenerating the rest: `{ jobId, page, instruction }` — e.g. *"make panel 2 a dramatic close-up"* or *"rewrite the dialogue to be funnier"*. The page spec is rewritten by the LLM, re-rendered with the job's **original seed and cast**, and the PDF/CBZ are rebuilt when the other pages are still on disk. Jobs stay revisable for 7 days (`JOB_TTL_MS`).
+
+### `get_character` (free)
+
+Look up a registered character: canonical appearance, style, seed, reference sheet URL.
 
 ### `clarify_comic` (free)
 
@@ -104,7 +125,17 @@ Given a partial or vague request, returns structured clarification questions (mi
 
 ### `get_quota` (free)
 
-Returns current x402 pricing, payment address, and whether the gate is enabled. Always free.
+Returns current per-tool x402 pricing, payment address, and whether the gate is enabled. Always free.
+
+---
+
+## Verifiable delivery
+
+Every delivery carries three trust artifacts:
+
+- **`integrity`** — SHA-256 of every delivered file (cover, pages, panels, PDF, CBZ, strip). The payer can verify the bytes they downloaded are the bytes they paid for.
+- **`receipt`** — `payloadSha256` over the job's file hashes plus an HMAC-SHA256 signature (when `RECEIPT_SECRET` is configured): portable proof of what was delivered for which job.
+- **`license`** — explicit commercial-use grant, attribution status, AI disclosure, and provenance (image model, seed, prompt hash) so a commercial agent knows exactly what it may do with the output before publishing.
 
 ---
 
@@ -113,9 +144,10 @@ Returns current x402 pricing, payment address, and whether the gate is enabled. 
 ```
 Agent → POST /mcp (MCP Streamable HTTP)
              │
-        ┌────▼────┐   x402 gate: discovery + clarify_comic + get_quota are free;
-        │ x402.ts │   generate_comic is priced by page count. Deterministic
-        └────┬────┘   failures (bad input, no image config) are rejected before payment.
+        ┌────▼────┐   x402 gate: discovery, clarify_comic, get_quota, get_character,
+        │ x402.ts │   create_series, get_series are free. generate_comic is priced by
+        └────┬────┘   page count; revise_page + create_character cost the base rate.
+             │        Deterministic failures are rejected before payment.
         ┌────▼─────────┐
         │ pipeline.ts  │  one-shot orchestrator
         └────┬─────────┘
@@ -152,15 +184,17 @@ writer.ts  illustrator.ts        assembler.ts
 
 ## Pricing
 
-Charged per `generate_comic` call via x402 v2 on X Layer (USDT0). No free quota. Price scales with page count:
+Charged per tool call via x402 v2 on X Layer (USDT0). No free quota. `generate_comic` scales with page count; single-generation tools cost the base rate:
 
-| Pages | Multiplier | Price (at 0.5 base) |
-|-------|-----------|---------------------|
-| 1–3   | 1× | 0.50 USDT |
-| 4–6   | 2× | 1.00 USDT |
-| 7–10  | 3× | 1.50 USDT |
+| Tool | Multiplier | Price (at 0.5 base) |
+|------|-----------|---------------------|
+| `generate_comic` 1–3 pages | 1× | 0.50 USDT |
+| `generate_comic` 4–6 pages | 2× | 1.00 USDT |
+| `generate_comic` 7–10 pages | 3× | 1.50 USDT |
+| `revise_page` | 1× | 0.50 USDT |
+| `create_character` | 1× | 0.50 USDT |
 
-The base price is set by `X402_PRICE_USD`; the tier multiplier is applied automatically. Discovery calls (`initialize`, `tools/list`), `clarify_comic`, and `get_quota` are always free.
+The base price is set by `X402_PRICE_USD`; multipliers are applied automatically. Discovery calls (`initialize`, `tools/list`), `clarify_comic`, `get_quota`, `get_character`, `create_series`, and `get_series` are always free. Deterministic failures (bad input, unknown `characterIds`/`jobId`, missing image provider) are rejected **before** payment.
 
 Our own cost per generation is roughly **$0.01** (LLM storyboard ~$0.005 + free-tier image generation + assembly), so the fee reflects real cost with margin.
 
@@ -191,6 +225,9 @@ Point an MCP client at `http://localhost:3001/mcp`. With `X402_MODE=off` (the de
 | `X402_PAY_TO` | Payment recipient address (required when the gate is enabled) |
 | `X402_PRICE_USD` | Base price; multiplied by the page tier |
 | `COMIC_DIR` / `COMIC_TTL_MS` | Output directory and cleanup TTL (default 24h) |
+| `DATA_DIR` | Persistent store for characters, series, and revisable jobs (default `./data`) |
+| `JOB_TTL_MS` | How long a job stays revisable via `revise_page` (default 7 days) |
+| `RECEIPT_SECRET` | HMAC key for signed delivery receipts (unset → receipts unsigned) |
 | `PORT` / `NODE_ENV` | Server port and environment |
 
 ### Scripts
@@ -217,12 +254,16 @@ bored-comic/
         ├── index.ts          # Express + MCP + x402 + static files
         ├── config.ts         # env configuration
         ├── types.ts          # types, layout templates, pickLayout()
-        ├── mcp.ts            # MCP server: clarify_comic, generate_comic, get_quota
-        ├── x402.ts           # x402 payment gate + tiered pricing + preflight
-        ├── pipeline.ts       # orchestrator + page assembly, balloons, SFX, cover
-        ├── writer.ts         # LLM → storyboard
+        ├── mcp.ts            # MCP server: all 8 tools
+        ├── x402.ts           # x402 payment gate + per-tool pricing + preflight
+        ├── pipeline.ts       # orchestrator, page/webtoon assembly, revise_page
+        ├── writer.ts         # LLM → storyboard, series context, page revision
         ├── illustrator.ts    # Cloudflare Workers AI → panel images
         ├── assembler.ts      # pdf-lib → combined PDF
+        ├── cbz.ts            # dependency-free CBZ (zip) writer
+        ├── character.ts      # character registration + reference sheets
+        ├── store.ts          # persistent store: characters, series, jobs
+        ├── receipt.ts        # integrity hashes, signed receipts, license
         ├── fonts.ts          # opentype.js glyph-path lettering
         ├── storage.ts        # temp file serving + TTL cleanup
         └── *.test.ts         # tests
@@ -241,7 +282,7 @@ bored-comic/
 
 ## Known limitations
 
-- **Character consistency is heuristic.** Faces can drift between panels. The image model (`flux-1-schnell`) has no reference-image conditioning, so consistency relies on prompt detail and a shared seed. This is the biggest quality ceiling and would require a different model to fully solve.
+- **Character consistency is heuristic.** Faces can drift between panels. The image model (`flux-1-schnell`) has no reference-image conditioning, so consistency relies on prompt detail and seeds. Registered characters (`create_character`) narrow the drift — canonical appearance text plus a stable per-character seed reused across jobs — but do not eliminate it. Fully solving this requires a model with reference-image conditioning.
 - **Image quality** is capped by `flux-1-schnell` (a fast, free-tier turbo model). A higher-fidelity model would improve raw art at the cost of leaving the free tier.
 - **Safety filter** — Cloudflare blocks NSFW prompts; some innocuous words ("haunted", "magical") can occasionally trip it. There is no 18+ support.
 

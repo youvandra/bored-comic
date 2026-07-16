@@ -85,6 +85,47 @@ test("pickLayout avoids repeating the same layout", async () => {
   assert.notEqual(k1, k2, "Consecutive pages should get different layouts");
 });
 
+test("webtoonLayouts stacks full-width panels vertically", async () => {
+  const { webtoonLayouts, webtoonDims } = await import("./pipeline.js");
+
+  const layouts = webtoonLayouts(3);
+  assert.equal(layouts.length, 3);
+  for (const [i, l] of layouts.entries()) {
+    assert.equal(l.x, 0);
+    assert.equal(l.w, 1);
+    assert.ok(Math.abs(l.y - i / 3) < 1e-9);
+    assert.ok(Math.abs(l.h - 1 / 3) < 1e-9);
+  }
+
+  // Page height grows with panel count; width is fixed.
+  const d2 = webtoonDims(2);
+  const d4 = webtoonDims(4);
+  assert.equal(d2.width, d4.width);
+  assert.ok(d4.height > d2.height);
+});
+
+test("panelAltText combines scene, characters, dialogue, and sfx", async () => {
+  const { panelAltText } = await import("./pipeline.js");
+
+  const alt = panelAltText({
+    panel: 1,
+    scene: "Mia leaps across rooftops at sunset",
+    characters: ["Mia", "Bob"],
+    dialogue: "Almost there!",
+    dialogue2: "Wait for me!",
+    sfx: "WHOOSH",
+  });
+
+  assert.ok(alt.includes("Mia leaps across rooftops at sunset."));
+  assert.ok(alt.includes("Characters: Mia, Bob."));
+  assert.ok(alt.includes('"Almost there!"'));
+  assert.ok(alt.includes('"Wait for me!"'));
+  assert.ok(alt.includes("Sound effect: WHOOSH."));
+
+  // Minimal panel: just the scene, normalized to end with a period.
+  assert.equal(panelAltText({ panel: 1, scene: "An empty street", characters: [] }), "An empty street.");
+});
+
 test("estimateCost scales with panel count", async () => {
   const { estimateCost } = await import("./pipeline.js");
   // llmCost=0.005 + 4*0.001 = 0.009 → round → 0.01
