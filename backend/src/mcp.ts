@@ -14,6 +14,16 @@ const STYLES = ["manga", "western", "semi-realistic", "chibi"] as const;
 const ASPECTS = ["3:4", "9:16", "1:1"] as const;
 const LAYOUT_MODES = ["page", "webtoon"] as const;
 
+// In-flight generation tracker. buildMcpServer creates a fresh server per
+// request, so progress lives at module level. Lost on restart — get_job then
+// reports the job as unknown and the caller regenerates.
+type Inflight = { kind: "generate" | "revise"; stage: string; startedAt: number; pages: number; error?: string };
+const inflight = new Map<string, Inflight>();
+
+function etaSeconds(pages: number): number {
+  return 45 + pages * 40;
+}
+
 function jsonResult(payload: unknown, isError = false) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
@@ -27,11 +37,11 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
     {
       instructions:
         "BoredComic — AI comic generator with persistent characters, series, and a hosted reader. " +
-        "generate_comic (paid): prompt in, complete comic out — per-page images, per-panel images with alt text, PDF, CBZ, webtoon strip, a shareable hosted reader link (readerUrl, with OG preview tags), a vision-model quality report on every page, plus decision-grade metadata, SHA-256 integrity hashes, a signed delivery receipt, and an explicit commercial license. " +
+        "generate_comic (paid): prompt in, jobId out immediately — generation runs in the background (typically 1-4 minutes); poll the free get_job tool to fetch the finished delivery: per-page images, per-panel images with alt text, PDF, CBZ, webtoon strip, a shareable hosted reader link (readerUrl, with OG preview tags), a vision-model quality report on every page, plus decision-grade metadata, SHA-256 integrity hashes, a signed delivery receipt, and an explicit commercial license. " +
         "create_character (paid): register a character once — canonical appearance + stable seed + reference sheet — then reuse it across comics via characterIds for consistent appearance. " +
         "create_series (free): start a series; each generate_comic with the seriesId continues the story from the previous episode's ending. " +
-        "revise_page (paid): change one page of a delivered comic ('make panel 2 more dramatic', 'change the dialogue') without regenerating the whole comic. " +
-        "get_job (free): re-fetch the full delivery of a paid comic by jobId — the recovery path if your connection dropped mid-generation. " +
+        "revise_page (paid): change one page of a delivered comic ('make panel 2 more dramatic', 'change the dialogue') without regenerating the whole comic — also async: returns at once, poll get_job for the updated delivery. " +
+        "get_job (free): poll generation progress and fetch the full delivery of a paid comic by jobId. " +
         "clarify_comic and get_quota are always free. Payment is per-call via x402.",
     },
   );
@@ -113,7 +123,7 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
       title: "Generate comic",
       annotations: { readOnlyHint: false, openWorldHint: true },
       description:
-        "Generate a complete comic from a natural-language prompt. Returns per-page images, per-panel images with alt text, a combined PDF, a CBZ archive, a shareable hosted reader link (readerUrl — send this to humans; link previews show the cover), a vision-model quality report grading every page (evidence.qualityReport), structured metadata (characters, panel count, story arc), SHA-256 integrity hashes, a signed delivery receipt, and an explicit commercial-use license. Pass characterIds (from create_character) to star registered characters with consistent appearance. Pass seriesId (from create_series) to continue an ongoing story. layoutMode 'webtoon' produces a vertical-scroll strip.",
+        "Generate a complete comic from a natural-language prompt. Returns a jobId immediately; generation runs in the background (typically 1-4 minutes) — poll the free get_job tool with the jobId to fetch the finished delivery: per-page images, per-panel images with alt text, a combined PDF, a CBZ archive, a shareable hosted reader link (readerUrl — send this to humans; link previews show the cover), a vision-model quality report grading every page (evidence.qualityReport), structured metadata (characters, panel count, story arc), SHA-256 integrity hashes, a signed delivery receipt, and an explicit commercial-use license. Pass characterIds (from create_character) to star registered characters with consistent appearance. Pass seriesId (from create_series) to continue an ongoing story. layoutMode 'webtoon' produces a vertical-scroll strip.",
       inputSchema: {
         prompt: z.string().min(3).describe("What the comic should be about"),
         genre: z.enum(GENRES).optional().describe("Genre of the comic"),
@@ -129,16 +139,33 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
     },
     async (input) => {
       const jobId = `cg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const gen = input as GenerateComicInput;
 
-      try {
-        const delivery = await runPipeline(jobId, input as GenerateComicInput, {
-          setStatus: () => {},
+      // Reply before the platform's client timeout: kick the pipeline off in
+      // the background and hand back a pollable jobId right away.
+      inflight.set(jobId, { kind: "generate", stage: "queued", startedAt: Date.now(), pages: gen.pages });
+      void runPipeline(jobId, gen, {
+        setStatus: (stage) => {
+          const j = inflight.get(jobId);
+          if (j) j.stage = stage;
+        },
+      })
+        .then(() => {
+          inflight.delete(jobId);
+        })
+        .catch((err) => {
+          console.error(`generate_comic pipeline failed for ${jobId}:`, err);
+          const j = inflight.get(jobId);
+          if (j) j.error = err instanceof Error ? err.message : "Generation failed";
         });
-        return jsonResult(delivery);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Generation failed";
-        return jsonResult({ error: msg, jobId }, true);
-      }
+
+      return jsonResult({
+        jobId,
+        status: "generating",
+        stage: "queued",
+        etaSeconds: etaSeconds(gen.pages),
+        next: "Poll the free get_job tool with this jobId every ~15 seconds until it returns the full delivery.",
+      });
     },
   );
 
@@ -148,7 +175,7 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
       title: "Revise one page",
       annotations: { readOnlyHint: false, openWorldHint: true },
       description:
-        "Revise a single page of a previously generated comic without regenerating the whole comic: change dialogue, redraw a panel, shift the mood. The page is rewritten per your instruction and re-rendered with the job's original seed and cast, and the PDF/CBZ are rebuilt when possible. Jobs stay revisable for 7 days. Priced at the base rate regardless of the comic's size.",
+        "Revise a single page of a previously generated comic without regenerating the whole comic: change dialogue, redraw a panel, shift the mood. The page is rewritten per your instruction and re-rendered with the job's original seed and cast, and the PDF/CBZ are rebuilt when possible. Returns immediately; poll the free get_job tool for the updated delivery. Jobs stay revisable for 7 days. Priced at the base rate regardless of the comic's size.",
       inputSchema: {
         jobId: z.string().describe("Job ID returned by generate_comic"),
         page: z.number().int().min(1).max(MAX_PAGES).describe("Page number to revise"),
@@ -156,13 +183,36 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
       },
     },
     async (input) => {
-      try {
-        const revision = await revisePage(input.jobId, input.page, input.instruction, { setStatus: () => {} });
-        return jsonResult(revision);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Revision failed";
-        return jsonResult({ error: msg, jobId: input.jobId }, true);
+      const { jobId } = input;
+      if (inflight.has(jobId)) {
+        return jsonResult({ error: `Job ${jobId} is still generating — poll get_job first.`, jobId }, true);
       }
+      if (!getJob(jobId)) {
+        return jsonResult({ error: `Unknown or expired jobId: ${jobId}.`, jobId }, true);
+      }
+      inflight.set(jobId, { kind: "revise", stage: "queued", startedAt: Date.now(), pages: 1 });
+      void revisePage(jobId, input.page, input.instruction, {
+        setStatus: (stage) => {
+          const j = inflight.get(jobId);
+          if (j) j.stage = stage;
+        },
+      })
+        .then(() => {
+          inflight.delete(jobId);
+        })
+        .catch((err) => {
+          console.error(`revise_page pipeline failed for ${jobId}:`, err);
+          const j = inflight.get(jobId);
+          if (j) j.error = err instanceof Error ? err.message : "Revision failed";
+        });
+
+      return jsonResult({
+        jobId,
+        status: "revising",
+        stage: "queued",
+        etaSeconds: etaSeconds(1),
+        next: "Poll the free get_job tool with this jobId until the updated delivery appears.",
+      });
     },
   );
 
@@ -200,12 +250,29 @@ export function buildMcpServer(callerIp = "unknown"): McpServer {
       title: "Re-fetch a delivered comic",
       annotations: { readOnlyHint: true },
       description:
-        "Free tool: fetch the full delivery payload of a previously generated comic by jobId. This is the recovery path when a paid generate_comic response was lost to a connection drop or timeout — you paid once, the result stays fetchable for 7 days. Note: the metadata outlives the files; comic images/PDF expire from disk after 24h.",
+        "Free tool: poll generation progress and fetch the full delivery payload of a comic by jobId. While the job is running it returns { status, stage, etaSeconds } — poll every ~15 seconds. Once finished it returns the complete delivery, fetchable for 7 days. Note: the metadata outlives the files; comic images/PDF expire from disk after 24h.",
       inputSchema: {
         jobId: z.string().describe("Job ID returned by generate_comic"),
       },
     },
     async (input) => {
+      const fly = inflight.get(input.jobId);
+      if (fly) {
+        if (fly.error) {
+          // Keep the failed entry so repeated polls keep seeing the reason
+          // (a paid call deserves a durable answer, not a one-shot read).
+          return jsonResult({ jobId: input.jobId, status: "failed", error: fly.error }, true);
+        }
+        const elapsed = Math.round((Date.now() - fly.startedAt) / 1000);
+        return jsonResult({
+          jobId: input.jobId,
+          status: fly.kind === "revise" ? "revising" : "generating",
+          stage: fly.stage,
+          elapsedSeconds: elapsed,
+          etaSeconds: Math.max(10, etaSeconds(fly.pages) - elapsed),
+          next: "Not done yet — poll get_job again in ~15 seconds.",
+        });
+      }
       const job = getJob(input.jobId);
       if (!job || !job.delivery) {
         return jsonResult({ error: `Unknown or expired jobId: ${input.jobId}. Deliveries stay fetchable for 7 days.` }, true);
