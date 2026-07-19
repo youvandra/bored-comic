@@ -6,63 +6,40 @@ import { ExactEvmScheme } from "@okxweb3/x402-evm/exact/server";
 import { config } from "./config.js";
 import { hasImageProvider } from "./illustrator.js";
 import { getCharacters, getJob } from "./store.js";
-import { MAX_PAGES, MIN_PAGES } from "./types.js";
+import { MIN_PAGES } from "./types.js";
 
 const NETWORK = "eip155:196";
 const USDT0_XLAYER = "0x779ded0c9e1022225f8e0630b35a9b54be713736";
-
-const isEnabled = () => config.x402Mode !== "off" && !!config.x402PayTo;
+const USDT0_DECIMALS = 6;
 
 type Handler = (req: Request, res: Response, next: NextFunction) => unknown;
 
-// Flat pricing: every paid tool call costs the configured base price,
-// regardless of page count. The OKX.AI marketplace registers one fixed fee
-// per service, so the on-chain challenge must always match that fee.
-export function priceForPages(_pages: number): string {
-  const base = Number(config.x402PriceUsd) || 0;
-  return base.toFixed(2);
-}
+export const x402Enabled = (): boolean =>
+  config.x402Mode !== "off" && !!config.x402PayTo;
 
-// Per-tool pricing. generate_comic scales with page count; revise_page and
-// create_character are single generations, so they cost the base rate.
-const FREE_TOOLS = new Set(["get_quota", "clarify_comic", "get_character", "get_series", "create_series", "get_job"]);
-const PAID_TOOLS = new Set(["generate_comic", "revise_page", "create_character"]);
+const paidCache = new Map<string, Handler>();
 
-export function priceForTool(tool: string, args: { pages?: unknown } | undefined): string | null {
-  if (FREE_TOOLS.has(tool) || !PAID_TOOLS.has(tool)) return null;
-  if (tool === "generate_comic") {
-    const pages = typeof args?.pages === "number" ? args.pages : 1;
-    return priceForPages(pages);
-  }
-  return priceForPages(1); // base rate: revise_page, create_character
-}
-
-// Cache one paid middleware per distinct price string.
-const paidByPrice = new Map<string, Handler>();
-
-function buildPaidMiddleware(price: string): Handler {
+function buildPaidMiddleware(routeKey: string, description: string, priceUsd: string): Handler {
   const facilitator = new OKXFacilitatorClient({
     apiKey: config.xlayerApiKey,
     secretKey: config.xlayerSecretKey,
     passphrase: config.xlayerPassphrase,
     syncSettle: true,
   });
-
   const resourceServer = new x402ResourceServer(facilitator).register(
     NETWORK,
     new ExactEvmScheme(),
   );
-
   return paymentMiddleware(
     {
-      "POST /mcp": {
+      [routeKey]: {
         accepts: {
           scheme: "exact",
-          price: `$${price}`,
+          price: `$${priceUsd}`,
           network: NETWORK,
           payTo: config.x402PayTo,
         },
-        description: "BoredComic comic generation tool call",
+        description,
         mimeType: "application/json",
       },
     },
@@ -70,17 +47,51 @@ function buildPaidMiddleware(price: string): Handler {
   ) as unknown as Handler;
 }
 
-function paidFor(price: string): Handler {
-  let mw = paidByPrice.get(price);
-  if (!mw) {
-    mw = buildPaidMiddleware(price);
-    paidByPrice.set(price, mw);
-  }
-  return mw;
+export function paidRoute(routeKey: string, description: string, priceUsd: string): Handler {
+  return (req, res, next) => {
+    if (!x402Enabled()) return next();
+
+    const hasProof =
+      req.headers["payment-signature"] ||
+      req.headers["x-payment"] ||
+      req.headers["x402-authorization"] ||
+      req.headers["x402-payment"];
+
+    if (hasProof) {
+      let mw = paidCache.get(routeKey);
+      if (!mw) {
+        mw = buildPaidMiddleware(routeKey, description, priceUsd);
+        paidCache.set(routeKey, mw);
+      }
+      return void mw(req, res, next);
+    }
+    return send402Challenge(req, res, description, priceUsd);
+  };
 }
 
-// Cheap, deterministic checks that would otherwise fail *after* payment.
-// The `exact` scheme can't refund a settled payment, so we reject these up front.
+export function send402Challenge(req: Request, res: Response, description: string, priceUsd: string): void {
+  const amount = Math.round(Number(priceUsd) * 10 ** USDT0_DECIMALS).toString();
+  const challenge = {
+    x402Version: 2,
+    resource: {
+      url: `${req.protocol}://${req.get("host")}${req.originalUrl}`,
+      description,
+      mimeType: "application/json",
+    },
+    accepts: [{
+      scheme: "exact",
+      network: NETWORK,
+      amount,
+      asset: USDT0_XLAYER,
+      payTo: config.x402PayTo,
+      maxTimeoutSeconds: 300,
+      extra: { name: "USD₮0", version: "1" },
+    }],
+  };
+  res.setHeader("PAYMENT-REQUIRED", Buffer.from(JSON.stringify(challenge)).toString("base64"));
+  res.status(402).json(challenge);
+}
+
 type ToolArgs = {
   prompt?: unknown;
   pages?: unknown;
@@ -93,15 +104,14 @@ type ToolArgs = {
   appearance?: unknown;
 };
 
-function preflightError(tool: string, args: ToolArgs | undefined): string | null {
+export function preflightError(tool: string, args: ToolArgs | undefined, maxPages: number): string | null {
   if (tool === "generate_comic") {
     if (!hasImageProvider()) return "Image generation is not configured (no Cloudflare account).";
     if (typeof args?.prompt !== "string" || args.prompt.length < 3) return "prompt must be a string of at least 3 characters.";
     const pages = args?.pages;
-    if (typeof pages !== "number" || !Number.isInteger(pages) || pages < MIN_PAGES || pages > MAX_PAGES) {
-      return `pages must be an integer between ${MIN_PAGES} and ${MAX_PAGES}.`;
+    if (typeof pages !== "number" || !Number.isInteger(pages) || pages < MIN_PAGES || pages > maxPages) {
+      return `pages must be an integer between ${MIN_PAGES} and ${maxPages}.`;
     }
-    // Unknown character/series IDs fail deterministically — reject pre-payment.
     if (Array.isArray(args?.characterIds) && args.characterIds.length > 0) {
       const ids = args.characterIds.filter((id): id is string => typeof id === "string");
       const found = new Set(getCharacters(ids).map((c) => c.characterId));
@@ -133,100 +143,39 @@ function preflightError(tool: string, args: ToolArgs | undefined): string | null
   return null;
 }
 
-export function x402Gate(req: Request, res: Response, next: NextFunction): void {
-  if (!isEnabled()) return next();
+// MCP preflight middleware: parses JSON-RPC body and rejects bad input before payment.
+export function mcpPreflight(maxPages?: number) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const body = req.body as { method?: string; id?: unknown; params?: { name?: string; arguments?: ToolArgs } } | undefined;
+    if (body?.method !== "tools/call") return next();
 
-  const body = req.body as { method?: string; params?: { name?: string; arguments?: ToolArgs } } | undefined;
-
-  // Bare request (no JSON-RPC method) — a marketplace validator or plain curl
-  // probing the endpoint. Answer with the x402 challenge so the probe sees a
-  // compliant paid endpoint instead of an MCP protocol error.
-  if (typeof body?.method !== "string") {
-    send402Challenge(req, res);
-    return;
-  }
-
-  // Discovery, introspection, and store lookups stay free.
-  if (body.method !== "tools/call") return next();
-  const tool = body?.params?.name ?? "";
-  const price = priceForTool(tool, body?.params?.arguments as { pages?: unknown });
-  if (price === null) return next();
-
-  // Reject deterministic failures before charging — the exact scheme has no refund path.
-  const preErr = preflightError(tool, body?.params?.arguments);
-  if (preErr) {
-    res.status(400).json({
-      jsonrpc: "2.0",
-      id: (body as { id?: unknown })?.id ?? null,
-      error: { code: -32602, message: `Rejected before payment: ${preErr}` },
-    });
-    return;
-  }
-
-  // If the request carries a payment proof, let the SDK verify + settle it.
-  // The OKX SDK reads the proof from the PAYMENT-SIGNATURE header (Node lowercases
-  // header keys); the others are kept as harmless fallbacks.
-  if (
-    req.headers["payment-signature"] ||
-    req.headers["x-payment"] ||
-    req.headers["x402-authorization"] ||
-    req.headers["x402-payment"] ||
-    req.headers["x-pay-signature"]
-  ) {
-    void paidFor(price)(req, res, next);
-    return;
-  }
-
-  // No payment proof — return a proper x402 v2 challenge with PAYMENT-REQUIRED header
-  send402Challenge(req, res);
-}
-
-// Build and send the x402 v2 challenge. Also used for bare (non-JSON-RPC)
-// requests to /mcp so marketplace validators probing the endpoint without an
-// MCP body still see a compliant HTTP 402. Pricing is flat, so the challenge
-// amount is the same for every paid call.
-export function send402Challenge(req: Request, res: Response): void {
-  const amount = Math.round(Number(priceForPages(1)) * 1000000).toString();
-  const challenge = {
-    x402Version: 2,
-    resource: {
-      url: `${req.protocol}://${req.get("host")}/mcp`,
-      description: "BoredComic comic generation tool call",
-      mimeType: "application/json",
-    },
-    accepts: [{
-      scheme: "exact",
-      network: NETWORK,
-      amount,
-      asset: USDT0_XLAYER,
-      payTo: config.x402PayTo,
-      maxTimeoutSeconds: 300,
-      extra: { name: "USD₮0", version: "1" },
-    }],
+    const tool = body?.params?.name ?? "";
+    const pages = maxPages ?? 10;
+    const preErr = preflightError(tool, body?.params?.arguments, pages);
+    if (preErr) {
+      res.status(400).json({
+        jsonrpc: "2.0",
+        id: body.id ?? null,
+        error: { code: -32602, message: `Rejected before payment: ${preErr}` },
+      });
+      return;
+    }
+    next();
   };
-  res.setHeader("PAYMENT-REQUIRED", Buffer.from(JSON.stringify(challenge)).toString("base64"));
-  res.status(402).json(challenge);
 }
 
-export function x402Info(): Record<string, unknown> {
+export function x402Info(price: string = config.x402PriceUsd): Record<string, unknown> {
   return {
-    enabled: isEnabled(),
+    enabled: x402Enabled(),
     x402Version: 2,
     pricing: {
-      basePerToolCall: `$${config.x402PriceUsd}`,
-      tools: {
-        generate_comic: `$${priceForPages(1)}`,
-        revise_page: `$${priceForPages(1)}`,
-        create_character: `$${priceForPages(1)}`,
-      },
+      perToolCall: `$${price}`,
       asset: USDT0_XLAYER,
       assetSymbol: "USDT0",
       network: NETWORK,
       payTo: config.x402PayTo || null,
     },
     settlement: "on-chain, settled by the OKX facilitator (@okxweb3/x402-express)",
-    metered: ["generate_comic", "revise_page", "create_character"],
-    free: ["initialize", "tools/list", "get_quota", "clarify_comic", "get_character", "get_series", "create_series", "get_job"],
     note: "No free daily quota — every metered tools/call requires payment.",
   };
 }

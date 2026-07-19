@@ -233,7 +233,6 @@ export interface GenerateComicInput {
   seriesId?: string;
 }
 
-export const MAX_PAGES = 10;
 export const MIN_PAGES = 1;
 
 // Layout templates for 1-4 panels on a 3:4 page
