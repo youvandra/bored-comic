@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { config } from "./config.js";
 import { buildGenServer, buildToolsServer } from "./mcp.js";
-import { paidRoute, mcpPreflight, send402Challenge, x402Info } from "./x402.js";
+import { mcpPaidRoute, mcpPreflight, send402Challenge, x402Info } from "./x402.js";
 import { resolveComicPath, startCleanup } from "./storage.js";
 import { getJob, getViews, incrementViews, resolveCharacterImagePath } from "./store.js";
 import { rateLimit } from "./ratelimit.js";
@@ -80,7 +80,7 @@ for (const tier of TIERS) {
     tier.path,
     rateLimit,
     mcpPreflight(tier.maxPages),
-    paidRoute(`POST ${tier.path}`, tier.desc, tier.price),
+    mcpPaidRoute(`POST ${tier.path}`, tier.desc, tier.price),
     handler,
   );
 
@@ -98,7 +98,7 @@ app.post(
   "/mcp",
   rateLimit,
   mcpPreflight(),
-  paidRoute("POST /mcp", "BoredComic Tools — revise and create characters", config.x402PriceUsd),
+  mcpPaidRoute("POST /mcp", "BoredComic Tools — revise and create characters", config.x402PriceUsd),
   toolsHandler,
 );
 

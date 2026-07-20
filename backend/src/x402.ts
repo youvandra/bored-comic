@@ -69,6 +69,23 @@ export function paidRoute(routeKey: string, description: string, priceUsd: strin
   };
 }
 
+/**
+ * x402 gate for an MCP endpoint. The MCP protocol/discovery methods
+ * (initialize, notifications/*, tools/list, ping) MUST stay free so an MCP
+ * client — including the OKX listing validator — can complete the handshake
+ * and discover tools. Only `tools/call` is metered. Gating the whole endpoint
+ * (plain paidRoute) 402s the handshake itself, so the validator never gets a
+ * usable response and the review times out.
+ */
+export function mcpPaidRoute(routeKey: string, description: string, priceUsd: string): Handler {
+  const paid = paidRoute(routeKey, description, priceUsd);
+  return (req, res, next) => {
+    const body = req.body as { method?: string } | undefined;
+    if (body?.method !== "tools/call") return next();
+    return void paid(req, res, next);
+  };
+}
+
 export function send402Challenge(req: Request, res: Response, description: string, priceUsd: string): void {
   const amount = Math.round(Number(priceUsd) * 10 ** USDT0_DECIMALS).toString();
   const challenge = {
