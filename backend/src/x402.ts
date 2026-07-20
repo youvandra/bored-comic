@@ -77,11 +77,24 @@ export function paidRoute(routeKey: string, description: string, priceUsd: strin
  * (plain paidRoute) 402s the handshake itself, so the validator never gets a
  * usable response and the review times out.
  */
+// Read-only / metadata tools stay free (introspection + polling); only the
+// generative tools (generate_comic, revise_page, create_character) are metered.
+// A caller must be able to poll get_job / check get_quota without paying.
+const FREE_TOOLS = new Set([
+  "get_quota",
+  "get_job",
+  "get_character",
+  "get_series",
+  "create_series",
+  "clarify_comic",
+]);
+
 export function mcpPaidRoute(routeKey: string, description: string, priceUsd: string): Handler {
   const paid = paidRoute(routeKey, description, priceUsd);
   return (req, res, next) => {
-    const body = req.body as { method?: string } | undefined;
+    const body = req.body as { method?: string; params?: { name?: string } } | undefined;
     if (body?.method !== "tools/call") return next();
+    if (FREE_TOOLS.has(body?.params?.name ?? "")) return next();
     return void paid(req, res, next);
   };
 }
