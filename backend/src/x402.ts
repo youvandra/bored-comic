@@ -114,10 +114,11 @@ export function send402Challenge(req: Request, res: Response, description: strin
       amount,
       asset: USDT0_XLAYER,
       payTo: config.x402PayTo,
-      // Paid tools run synchronously and return the finished comic in the 200
-      // body, so the authorization window must cover full generation, not just
-      // the request round-trip.
-      maxTimeoutSeconds: 1200,
+      // Must match the window the OKX facilitator accepts for EIP-3009
+      // authorizations on X Layer (the working WalletLens ASP uses 300). A
+      // longer window makes the buyer sign a validBefore the facilitator
+      // rejects, so verification fails with an empty 402 before settling.
+      maxTimeoutSeconds: 300,
       extra: { name: "USD₮0", version: "1" },
     }],
   };
