@@ -114,7 +114,10 @@ export function send402Challenge(req: Request, res: Response, description: strin
       amount,
       asset: USDT0_XLAYER,
       payTo: config.x402PayTo,
-      maxTimeoutSeconds: 300,
+      // Paid tools run synchronously and return the finished comic in the 200
+      // body, so the authorization window must cover full generation, not just
+      // the request round-trip.
+      maxTimeoutSeconds: 1200,
       extra: { name: "USD₮0", version: "1" },
     }],
   };

@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { config } from "./config.js";
 import { buildGenServer, buildToolsServer } from "./mcp.js";
 import { mcpPaidRoute, mcpPreflight, send402Challenge, x402Info } from "./x402.js";
+import { handleNativePaidCall, PAID_TOOLS } from "./native.js";
 import { resolveComicPath, startCleanup } from "./storage.js";
 import { getJob, getViews, incrementViews, resolveCharacterImagePath } from "./store.js";
 import { rateLimit } from "./ratelimit.js";
@@ -52,10 +53,17 @@ const TIERS: TierConfig[] = [
   { path: "/gen/premium",  maxPages: 20, price: "3.00", name: "Generate Comic Premium",  desc: "BoredComic Premium — 11-20 page comics" },
 ];
 
-// ─── Generic MCP route factory ──────────────────────────────────────────────
+// ─── MCP route factory ──────────────────────────────────────────────────────
 
-function createMcpHandler(server: ReturnType<typeof buildGenServer | typeof buildToolsServer>) {
+type ServerFactory = () => ReturnType<typeof buildGenServer | typeof buildToolsServer>;
+
+// MCP Streamable-HTTP transport path — used for protocol discovery
+// (initialize, tools/list, ping, notifications) and free tools. A fresh server
+// is built per request so the per-request transport.close()/server.close()
+// can't tear down a shared instance out from under a concurrent request.
+function createMcpTransportHandler(buildServer: ServerFactory) {
   return async (req: express.Request, res: express.Response) => {
+    const server = buildServer();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => {
       transport.close();
@@ -71,10 +79,47 @@ function createMcpHandler(server: ReturnType<typeof buildGenServer | typeof buil
   };
 }
 
+const ACCEPT_BOTH = "application/json, text/event-stream";
+
+// The MCP transport rebuilds the request from req.rawHeaders (the flat array),
+// not the parsed req.headers object — so both must be set for the Accept
+// override to reach the transport and keep a plain-JSON discovery client from
+// tripping its 406 event-stream requirement.
+function forceAcceptBoth(req: express.Request): void {
+  req.headers.accept = ACCEPT_BOTH;
+  const raw = req.rawHeaders;
+  let found = false;
+  for (let i = 0; i < raw.length; i += 2) {
+    if (raw[i]?.toLowerCase() === "accept") {
+      raw[i + 1] = ACCEPT_BOTH;
+      found = true;
+    }
+  }
+  if (!found) raw.push("Accept", ACCEPT_BOTH);
+}
+
+// Paid-endpoint handler. Paid tool calls (generate_comic, revise_page,
+// create_character) are served x402-native: a plain-JSON POST in, a plain-JSON
+// 200 out, so the OKX facilitator can settle. Everything else (discovery, free
+// tools) goes through the MCP transport, with the Accept header normalized so a
+// plain-JSON client doesn't trip the transport's 406 event-stream requirement.
+function createPaidHandler(buildServer: ServerFactory) {
+  const transportHandler = createMcpTransportHandler(buildServer);
+  return async (req: express.Request, res: express.Response) => {
+    const body = req.body as { method?: string; params?: { name?: string } } | undefined;
+    if (body?.method === "tools/call" && PAID_TOOLS.has(body?.params?.name ?? "")) {
+      return handleNativePaidCall(req, res);
+    }
+    const accept = String(req.headers.accept ?? "");
+    if (!accept.includes("text/event-stream")) forceAcceptBoth(req);
+    return transportHandler(req, res);
+  };
+}
+
 // ─── Gen endpoints: generate_comic only ─────────────────────────────────────
 
 for (const tier of TIERS) {
-  const handler = createMcpHandler(buildGenServer(tier.maxPages, tier.price, tier.name));
+  const handler = createPaidHandler(() => buildGenServer(tier.maxPages, tier.price, tier.name));
 
   app.post(
     tier.path,
@@ -92,7 +137,7 @@ for (const tier of TIERS) {
 
 // ─── Tools endpoint: revise_page, create_character ──────────────────────────
 
-const toolsHandler = createMcpHandler(buildToolsServer(config.x402PriceUsd));
+const toolsHandler = createPaidHandler(() => buildToolsServer(config.x402PriceUsd));
 
 app.post(
   "/mcp",
