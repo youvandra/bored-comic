@@ -13,11 +13,19 @@ import type { Request, Response } from "express";
 import { runPipeline, revisePage } from "./pipeline.js";
 import { createCharacter, type CreateCharacterInput } from "./character.js";
 import { getJob } from "./store.js";
+import { inflight, etaSeconds } from "./mcp.js";
+import { readerUrlFor } from "./reader.js";
 import type { GenerateComicInput } from "./types.js";
 
 export const PAID_TOOLS = new Set(["generate_comic", "revise_page", "create_character"]);
 
 const NOOP_HOOKS = { setStatus: () => {} };
+
+// Comics up to this many pages finish inside the request and return the full
+// delivery in the 200 body. Longer ones (premium, 11-20 pages) would hold the
+// HTTP connection for many minutes and risk the facilitator's own read timeout,
+// so they run in the background and return a jobId + readerUrl the buyer polls.
+const SYNC_MAX_PAGES = 10;
 
 // JSON-RPC 2.0 success. `structuredContent` carries the delivery as data; the
 // `content` text mirror keeps the response valid for MCP-style clients too.
@@ -51,7 +59,35 @@ export async function handleNativePaidCall(req: Request, res: Response): Promise
   try {
     if (name === "generate_comic") {
       const jobId = `cg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const delivery = await runPipeline(jobId, args as unknown as GenerateComicInput, NOOP_HOOKS);
+      const gen = args as unknown as GenerateComicInput;
+
+      // Long comics: run in the background and return a handle immediately.
+      if (typeof gen.pages === "number" && gen.pages > SYNC_MAX_PAGES) {
+        inflight.set(jobId, { kind: "generate", stage: "queued", startedAt: Date.now(), pages: gen.pages });
+        void runPipeline(jobId, gen, {
+          setStatus: (stage) => {
+            const j = inflight.get(jobId);
+            if (j) j.stage = stage;
+          },
+        })
+          .then(() => { inflight.delete(jobId); })
+          .catch((err) => {
+            const j = inflight.get(jobId);
+            if (j) j.error = err instanceof Error ? err.message : "Generation failed";
+          });
+        res.status(200).json(rpcResult(id, {
+          jobId,
+          status: "generating",
+          stage: "queued",
+          etaSeconds: etaSeconds(gen.pages),
+          readerUrl: readerUrlFor(jobId),
+          next: "Poll the free get_job tool with this jobId every ~15 seconds until it returns the full delivery.",
+        }));
+        return;
+      }
+
+      // Short comics: finish inside the request, return the full delivery.
+      const delivery = await runPipeline(jobId, gen, NOOP_HOOKS);
       res.status(200).json(rpcResult(id, delivery));
       return;
     }

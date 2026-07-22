@@ -14,10 +14,12 @@ const STYLES = ["manga", "western", "semi-realistic", "chibi"] as const;
 const ASPECTS = ["3:4", "9:16", "1:1"] as const;
 const LAYOUT_MODES = ["page", "webtoon"] as const;
 
-type Inflight = { kind: "generate" | "revise"; stage: string; startedAt: number; pages: number; error?: string };
-const inflight = new Map<string, Inflight>();
+export type Inflight = { kind: "generate" | "revise"; stage: string; startedAt: number; pages: number; error?: string };
+// Shared with the x402-native handler so get_job polling works for jobs it
+// runs in the background (long/premium comics returned async).
+export const inflight = new Map<string, Inflight>();
 
-function etaSeconds(pages: number): number {
+export function etaSeconds(pages: number): number {
   return 45 + pages * 40;
 }
 
